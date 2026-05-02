@@ -1,749 +1,1416 @@
 /**
- * ═══════════════════════════════════════════════════
+ * ═══════════════════════════════════════════════════════════════
  *  GeoZakhraf Xhaos Engine — engine2d.js
- *  2D Canvas Flow-Field Renderer
- *  60-Formula Mathematical Preset Library
- * ═══════════════════════════════════════════════════
+ *
+ *  2D Flow-Field Particle Renderer
+ *  · 60 Mathematical Formula Presets
+ *  · Fractional Brownian Motion (fBm) Math Core
+ *  · Domain Warping System
+ *  · 2800+ GPU-optimised Particles with Trail System
+ *  · Live Metrics Output → SyncController
+ *  · Dynamic Density Control
+ *  · Color Palette Engine (Cybernetic Gradients)
+ *
+ *  Architecture: IIFE Module Pattern (no global pollution)
+ * ═══════════════════════════════════════════════════════════════
  */
 
 'use strict';
 
 window.Engine2D = (function () {
 
-  /* ─── Private State ─── */
-  let canvas, ctx, W, H, cx, cy;
-  let animId   = null;
-  let t        = 0;
-  let params   = { speed: 1, scale: 1, chaos: 0.5, presetIndex: 0 };
-  let particles = [];
-  const PARTICLE_COUNT = 2800;
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     PRIVATE STATE
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /* ─── Output Metrics for SyncController ─── */
-  let metrics = { frequency: 0, outwardFlow: 0, clockwise: true };
+  let canvas      = null;
+  let ctx         = null;
+  let W           = 0;      // canvas width
+  let H           = 0;      // canvas height
+  let cx          = 0;      // center X
+  let cy          = 0;      // center Y
+  let animId      = null;   // requestAnimationFrame id
+  let t           = 0;      // global time accumulator
+  let lastTs      = 0;      // last timestamp (for delta)
+  let frameCount  = 0;      // total frames rendered
+  let fpsAccum    = 0;      // FPS accumulator
+  let currentFPS  = 60;     // smoothed FPS output
 
-  /* ══════════════════════════════════════════════
-     MATH UTILITIES
-  ══════════════════════════════════════════════ */
+  /* ── Engine Parameters (set via setParams) ── */
+  let params = {
+    speed:        1.0,
+    scale:        1.0,
+    chaos:        0.5,
+    presetIndex:  0,
+    density:      2800    // target particle count
+  };
 
-  /** Simple value noise (2D hash-based) */
+  /* ── Particle Pool ── */
+  let particles   = [];
+
+  /* ── Output Metrics → SyncController ── */
+  let metrics = {
+    frequency:    0,    // [0..1]  oscillation speed estimate
+    outwardFlow:  0,    // [-1..1] negative = inward, positive = outward
+    clockwise:    true, // boolean rotation direction
+    energy:       0,    // [0..1]  overall motion energy
+    fps:          60
+  };
+
+  /* ── Color palette index cycles ── */
+  const PALETTES = [
+    // Cyber Neon
+    [[0,240,255],[139,0,255],[255,215,0],[255,34,68],[0,255,136]],
+    // Ice Storm
+    [[0,200,255],[50,100,255],[0,255,200],[100,150,255],[200,240,255]],
+    // Solar Flare
+    [[255,100,0],[255,200,0],[255,50,50],[200,0,100],[255,150,50]],
+    // Deep Void
+    [[80,0,255],[0,80,255],[255,0,200],[0,200,150],[80,255,200]],
+    // Toxic Grid
+    [[0,255,100],[100,255,0],[0,200,80],[50,255,150],[200,255,0]]
+  ];
+  let paletteIndex = 0;
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 1 — MATHEMATICS CORE
+     All noise, fBm, warp, and helper functions
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  /**
+   * hash2 — deterministic pseudo-random from 2 inputs
+   * Uses sin-based hash (fast, good distribution for visuals)
+   * @param  {number} x
+   * @param  {number} y
+   * @return {number} [0, 1)
+   */
+  function hash2(x, y) {
+    const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+    return v - Math.floor(v);
+  }
+
+  /**
+   * noise2 — smooth value noise
+   * Bicubic interpolation of corner hashes
+   * Returns [-1, 1]
+   */
   function noise2(x, y) {
-    const ix = Math.floor(x), iy = Math.floor(y);
-    const fx = x - ix, fy = y - iy;
-    const ux = fx * fx * (3 - 2 * fx);
-    const uy = fy * fy * (3 - 2 * fy);
-    const h = (a, b) => {
-      let v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
-      return v - Math.floor(v);
-    };
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+
+    // Cubic smoothstep
+    const ux = fx * fx * (3.0 - 2.0 * fx);
+    const uy = fy * fy * (3.0 - 2.0 * fy);
+
+    // Four corner hashes
+    const ll = hash2(ix,     iy    );
+    const lr = hash2(ix + 1, iy    );
+    const ul = hash2(ix,     iy + 1);
+    const ur = hash2(ix + 1, iy + 1);
+
+    // Bilinear interpolation
     return (
-      h(ix,   iy  ) * (1-ux) * (1-uy) +
-      h(ix+1, iy  ) * ux     * (1-uy) +
-      h(ix,   iy+1) * (1-ux) * uy     +
-      h(ix+1, iy+1) * ux     * uy
-    ) * 2 - 1;
+      ll * (1 - ux) * (1 - uy) +
+      lr * ux       * (1 - uy) +
+      ul * (1 - ux) * uy       +
+      ur * ux       * uy
+    ) * 2.0 - 1.0;
   }
 
-  /** Fractional Brownian Motion */
-  function fBm(x, y, octaves) {
-    let v = 0, a = 0.5, freq = 1;
+  /**
+   * fBm — Fractional Brownian Motion
+   * Sums multiple octaves of noise at increasing frequency
+   * Returns approximately [-1, 1]
+   *
+   * @param {number} x
+   * @param {number} y
+   * @param {number} octaves  integer, typically 4–8
+   * @param {number} [lacunarity=2.0]  frequency multiplier per octave
+   * @param {number} [gain=0.5]        amplitude multiplier per octave
+   */
+  function fBm(x, y, octaves, lacunarity, gain) {
+    lacunarity = lacunarity || 2.0;
+    gain       = gain       || 0.5;
+
+    let value     = 0.0;
+    let amplitude = 0.5;
+    let frequency = 1.0;
+
     for (let i = 0; i < octaves; i++) {
-      v += a * noise2(x * freq, y * freq);
-      freq *= 2.0; a *= 0.5;
+      value     += amplitude * noise2(x * frequency, y * frequency);
+      frequency *= lacunarity;
+      amplitude *= gain;
     }
-    return v;
+    return value;
   }
 
-  /** Turbulence (absolute fBm) */
+  /**
+   * turb — Turbulence (absolute-value fBm)
+   * Creates sharp ridges. Good for lightning, cracks, fire.
+   * Returns [0, ~1]
+   */
   function turb(x, y, octaves) {
-    let v = 0, a = 0.5, freq = 1;
+    let value     = 0.0;
+    let amplitude = 0.5;
+    let frequency = 1.0;
+
     for (let i = 0; i < octaves; i++) {
-      v += a * Math.abs(noise2(x * freq, y * freq));
-      freq *= 2.0; a *= 0.5;
+      value     += amplitude * Math.abs(noise2(x * frequency, y * frequency));
+      frequency *= 2.0;
+      amplitude *= 0.5;
     }
-    return v;
+    return value;
   }
 
-  /** Domain Warp — returns {x, y} warped coordinates */
+  /**
+   * warp — Iterative Domain Warping
+   * Warps input coordinates using noise-based offsets.
+   * Creates organic, fluid-like distortions.
+   *
+   * @param  {number} x
+   * @param  {number} y
+   * @param  {number} t    time
+   * @param  {number} iters  warp depth (1–6 recommended)
+   * @return {{x: number, y: number}}
+   */
   function warp(x, y, t, iters) {
-    let px = x, py = y;
+    let px = x;
+    let py = y;
+
     for (let i = 0; i < iters; i++) {
-      const nx = px + 0.8 * noise2(px + 0.3 * t, py + 1.7);
-      const ny = py + 0.8 * noise2(px + 3.1 + 0.2 * t, py + 2.3);
-      px = nx; py = ny;
+      const strength = 0.8 / (i + 1); // weakens with depth
+      const ox = px + strength * noise2(px + 0.3 * t + i * 3.7,
+                                         py + 1.7  + i * 2.1);
+      const oy = py + strength * noise2(px + 3.1 + 0.2 * t + i * 1.9,
+                                         py + 2.3  + i * 4.3);
+      px = ox;
+      py = oy;
     }
     return { x: px, y: py };
   }
 
-  /* ══════════════════════════════════════════════
-     60 FORMULA LIBRARY
-     Each formula returns an angle (radians)
-     that drives particle flow direction.
-  ══════════════════════════════════════════════ */
+  /**
+   * ridge — Ridge noise (inverted turb, sharp peaks)
+   * Good for mountain-like or crystal structures.
+   */
+  function ridge(x, y, octaves) {
+    let value     = 0.0;
+    let amplitude = 0.5;
+    let frequency = 1.0;
+
+    for (let i = 0; i < octaves; i++) {
+      const n = 1.0 - Math.abs(noise2(x * frequency, y * frequency));
+      value     += amplitude * (n * n);
+      frequency *= 2.0;
+      amplitude *= 0.5;
+    }
+    return value;
+  }
+
+  /**
+   * smoothstep — GLSL-style polynomial smoothstep
+   */
+  function smoothstep(edge0, edge1, x) {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+  }
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 2 — 60 FORMULA LIBRARY
+     Each formula(x, y, t, s) → angle (radians)
+     x, y  = particle screen position
+     t     = global time
+     s     = scale parameter
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   const FORMULAS = [
 
-    /* 01 — Fiber Optics */
-    (x, y, t, s) => {
-      const fb = fBm(0.003*s*x, 0.003*s*y, 4);
-      return (Math.sin(0.003*s*x + t) + Math.cos(0.003*s*y + t)) * 2.2 + fb * 3;
+    /* ── 01 · Fiber Optics ──────────────────────────
+       Layered sine/cosine waves with fBm turbulence.
+       Creates streaming light-fiber trails.
+    ─────────────────────────────────────────────── */
+    function fiberOptics(x, y, t, s) {
+      const base = (Math.sin(0.003 * s * x + t) +
+                    Math.cos(0.003 * s * y + t)) * 2.2;
+      const detail = fBm(0.003 * s * x, 0.003 * s * y, 4) * 3.0;
+      return base + detail;
     },
 
-    /* 02 — Digital Silk */
-    (x, y, t, s) => {
-      const w = warp(0.004*s*x, 0.004*s*y, t, 2);
-      return Math.sin(w.x + 0.7*t) * Math.cos(w.y - 0.5*t) * 4;
+    /* ── 02 · Digital Silk ──────────────────────────
+       Domain-warped sine×cosine product.
+       Smooth, flowing fabric-like motion.
+    ─────────────────────────────────────────────── */
+    function digitalSilk(x, y, t, s) {
+      const w = warp(0.004 * s * x, 0.004 * s * y, t, 2);
+      return Math.sin(w.x + 0.7 * t) * Math.cos(w.y - 0.5 * t) * 4.0;
     },
 
-    /* 03 — Wave Turbulence */
-    (x, y, t, s) => {
-      const tb = turb(0.002*s*x, 0.002*s*y, 5);
-      return (Math.sin(0.003*s*(x+y) + t + tb*4) - Math.cos(0.003*s*(x-y) - t)) * 2.5;
+    /* ── 03 · Wave Turbulence ───────────────────────
+       Turbulence-displaced interference of diagonal waves.
+       Creates chaotic crashing-wave patterns.
+    ─────────────────────────────────────────────── */
+    function waveTurbulence(x, y, t, s) {
+      const tb = turb(0.002 * s * x, 0.002 * s * y, 5);
+      const a  = Math.sin(0.003 * s * (x + y) + t + tb * 4.0);
+      const b  = Math.cos(0.003 * s * (x - y) - t);
+      return (a - b) * 2.5;
     },
 
-    /* 04 — Dynamic Vortex */
-    (x, y, t, s) => {
+    /* ── 04 · Dynamic Vortex ────────────────────────
+       Angular field + radial pull function.
+       Particles orbit a dynamic attractor.
+    ─────────────────────────────────────────────── */
+    function dynamicVortex(x, y, t, s) {
       const r    = Math.hypot(x - cx, y - cy);
-      const pull = Math.sin(0.008*s*r - t) * 0.5;
-      return Math.atan2(y - cy, x - cx) + 0.6*t + pull;
+      const pull = Math.sin(0.008 * s * r - t) * 0.5;
+      return Math.atan2(y - cy, x - cx) + 0.6 * t + pull;
     },
 
-    /* 05 — Neural Grid */
-    (x, y, t, s) => {
-      const gx   = Math.floor(x / (40/s));
-      const gy   = Math.floor(y / (40/s));
-      const cell = noise2(0.5*gx, 0.5*gy + 0.3*t);
-      return (gx + gy) * 0.5 * cell + 0.1*t + Math.sin(cell * 2*Math.PI) * 2;
+    /* ── 05 · Neural Grid ───────────────────────────
+       Cell-based noise grid. Quantised flow field.
+       Each grid cell has its own flow direction.
+    ─────────────────────────────────────────────── */
+    function neuralGrid(x, y, t, s) {
+      const cellSize = 40.0 / s;
+      const gx       = Math.floor(x / cellSize);
+      const gy       = Math.floor(y / cellSize);
+      const cell     = noise2(0.5 * gx, 0.5 * gy + 0.3 * t);
+      return (gx + gy) * 0.5 * cell +
+              0.1 * t +
+              Math.sin(cell * 2.0 * Math.PI) * 2.0;
     },
 
-    /* 06 — Data Blocks */
-    (x, y, t, s) => {
-      const bx = Math.round(x / (70/s));
-      const by = Math.round(y / (70/s));
-      const nn = noise2(bx + 0.2*t, by);
-      return (bx + by) * 0.22 + Math.sin(t + nn*8) + Math.cos(nn*Math.PI) * 2;
+    /* ── 06 · Data Blocks ───────────────────────────
+       Rounded grid coordinates with noise modulation.
+       Creates a pixelated data-matrix aesthetic.
+    ─────────────────────────────────────────────── */
+    function dataBlocks(x, y, t, s) {
+      const bx = Math.round(x / (70.0 / s));
+      const by = Math.round(y / (70.0 / s));
+      const nn = noise2(bx + 0.2 * t, by);
+      return (bx + by) * 0.22 +
+              Math.sin(t + nn * 8.0) +
+              Math.cos(nn * Math.PI) * 2.0;
     },
 
-    /* 07 — Sand Waves */
-    (x, y, t, s) => {
-      const nn = fBm(0.003*s*x + 0.2*t, 0.003*s*y, 6);
-      return Math.sin(0.005*s*(x+y) + t + nn*5) + Math.cos(0.005*s*(x-y) - t + nn*3);
+    /* ── 07 · Sand Waves ────────────────────────────
+       fBm-displaced diagonal sinusoids.
+       Evokes windswept desert dune ripples.
+    ─────────────────────────────────────────────── */
+    function sandWaves(x, y, t, s) {
+      const nn = fBm(0.003 * s * x + 0.2 * t, 0.003 * s * y, 6);
+      const a  = Math.sin(0.005 * s * (x + y) + t + nn * 5.0);
+      const b  = Math.cos(0.005 * s * (x - y) - t + nn * 3.0);
+      return a + b;
     },
 
-    /* 08 — Galactic River */
-    (x, y, t, s) => {
-      const w  = warp(0.002*s*x, 0.002*s*y, t, 4);
-      const tb = turb(0.001*s*x, 0.001*s*y, 3);
-      return Math.sin(w.x + t) * Math.cos(w.y + t) * 5 + tb * 3;
+    /* ── 08 · Galactic River ────────────────────────
+       Deep domain warp + turbulence overlay.
+       Simulates stellar gas streams.
+    ─────────────────────────────────────────────── */
+    function galacticRiver(x, y, t, s) {
+      const w  = warp(0.002 * s * x, 0.002 * s * y, t, 4);
+      const tb = turb(0.001 * s * x, 0.001 * s * y, 3);
+      return Math.sin(w.x + t) * Math.cos(w.y + t) * 5.0 + tb * 3.0;
     },
 
-    /* 09 — Radial Drift */
-    (x, y, t) => {
+    /* ── 09 · Radial Drift ──────────────────────────
+       Radial sine rings with horizontal cosine drift.
+       Clean radar-pulse aesthetic.
+    ─────────────────────────────────────────────── */
+    function radialDrift(x, y, t) {
       const r = Math.hypot(x - cx, y - cy);
-      return Math.sin(0.02*r + t) * 2.2 + 0.35 * Math.cos(0.004*y - 0.5*t);
+      return Math.sin(0.02 * r + t) * 2.2 +
+              0.35 * Math.cos(0.004 * y - 0.5 * t);
     },
 
-    /* 10 — Geometric Repeat */
-    (x, y, t, s) => {
-      const nn = noise2(0.005*s*x, 0.005*s*y + 0.1*t);
-      return Math.sin(0.009*s*x + Math.sin(0.006*s*y + t)) +
-             Math.cos(0.009*s*y + Math.cos(0.006*s*x + t)) + nn * 2;
+    /* ── 10 · Geometric Repeat ──────────────────────
+       Self-referential sine/cosine with noise offset.
+       Produces recursive geometric tiling.
+    ─────────────────────────────────────────────── */
+    function geometricRepeat(x, y, t, s) {
+      const nn = noise2(0.005 * s * x, 0.005 * s * y + 0.1 * t);
+      return Math.sin(0.009 * s * x + Math.sin(0.006 * s * y + t)) +
+             Math.cos(0.009 * s * y + Math.cos(0.006 * s * x + t)) +
+             nn * 2.0;
     },
 
-    /* 11 — Magnetic Field (4 poles) */
-    (x, y, t) => {
+    /* ── 11 · Magnetic Field ────────────────────────
+       Superposition of atan2 fields from 4 poles.
+       Simulates electromagnetic field lines.
+    ─────────────────────────────────────────────── */
+    function magneticField(x, y, t) {
       const poles = [
-        { px: cx - W*0.25, py: cy,          sign:  1 },
-        { px: cx + W*0.25, py: cy,          sign: -1 },
-        { px: cx,          py: cy - H*0.25, sign:  1 },
-        { px: cx,          py: cy + H*0.25, sign: -1 }
+        { px: cx - W * 0.25, py: cy,          sign:  1 },
+        { px: cx + W * 0.25, py: cy,          sign: -1 },
+        { px: cx,            py: cy - H * 0.25, sign:  1 },
+        { px: cx,            py: cy + H * 0.25, sign: -1 }
       ];
-      let sum = 0;
-      poles.forEach(p => { sum += Math.atan2(y - p.py, x - p.px) * p.sign; });
+
+      let sum = 0.0;
+      poles.forEach(p => {
+        sum += Math.atan2(y - p.py, x - p.px) * p.sign;
+      });
+
       return sum / poles.length + 0.3 * Math.sin(t);
     },
 
-    /* 12 — Ordered Chaos */
-    (x, y, t, s) => {
-      const nn = turb(0.003*s*x + 0.1*t, 0.003*s*y, 6);
-      return Math.sin(0.003*s*x) * Math.cos(0.003*s*y) * 2*Math.PI + Math.sin(t) + nn*4;
+    /* ── 12 · Ordered Chaos ─────────────────────────
+       Sine×cosine grid modulated by turbulence.
+       Structured patterns that break down.
+    ─────────────────────────────────────────────── */
+    function orderedChaos(x, y, t, s) {
+      const nn = turb(0.003 * s * x + 0.1 * t, 0.003 * s * y, 6);
+      return Math.sin(0.003 * s * x) *
+             Math.cos(0.003 * s * y) *
+             2.0 * Math.PI +
+             Math.sin(t) +
+             nn * 4.0;
     },
 
-    /* 13 — Fractal Spiral */
-    (x, y, t, s) => {
-      const dx = x - cx, dy = y - cy;
-      const r  = Math.hypot(dx, dy);
-      const th = Math.atan2(dy, dx);
-      const spiral = Math.log(r + 1) * 0.5*s + th;
-      return spiral + 0.4*t + fBm(2*th, 0.005*r, 4) * 3;
+    /* ── 13 · Fractal Spiral ────────────────────────
+       Logarithmic spiral with fBm angle displacement.
+       Galaxy-like arms that fragment into detail.
+    ─────────────────────────────────────────────── */
+    function fractalSpiral(x, y, t, s) {
+      const dx     = x - cx;
+      const dy     = y - cy;
+      const r      = Math.hypot(dx, dy);
+      const theta  = Math.atan2(dy, dx);
+      const spiral = Math.log(r + 1.0) * 0.5 * s + theta;
+      const fb     = fBm(2.0 * theta, 0.005 * r, 4);
+      return spiral + 0.4 * t + fb * 3.0;
     },
 
-    /* 14 — Electric Storm */
-    (x, y, t, s) => {
-      const n1   = noise2(0.005*s*x + t, 0.005*s*y);
-      const n2   = noise2(0.01*s*x, 0.01*s*y - 0.5*t);
-      const bolt = Math.sin(n1*20) * Math.cos(n2*15);
-      return bolt * 3 + Math.atan2(y - cy, x - cx) * 0.2;
+    /* ── 14 · Electric Storm ────────────────────────
+       Dual-noise bolt function + angular base field.
+       High-frequency lightning discharge aesthetic.
+    ─────────────────────────────────────────────── */
+    function electricStorm(x, y, t, s) {
+      const n1   = noise2(0.005 * s * x + t, 0.005 * s * y);
+      const n2   = noise2(0.01  * s * x,     0.01  * s * y - 0.5 * t);
+      const bolt = Math.sin(n1 * 20.0) * Math.cos(n2 * 15.0);
+      return bolt * 3.0 + Math.atan2(y - cy, x - cx) * 0.2;
     },
 
-    /* 15 — DNA Helix */
-    (x, y, t, s) => {
-      const wave = Math.sin(0.01*s*y + 2*t) * W * 0.15;
-      return Math.atan2(Math.sin(0.02*s*y + t), (x - cx - wave) * 0.005) +
-             Math.cos(0.008*s*y + t) * 2;
+    /* ── 15 · DNA Helix ─────────────────────────────
+       Sinusoidal column with atan2 wrap.
+       Produces double-helix strand motion.
+    ─────────────────────────────────────────────── */
+    function dnaHelix(x, y, t, s) {
+      const wave = Math.sin(0.01 * s * y + 2.0 * t) * W * 0.15;
+      const col  = (x - cx - wave) * 0.005;
+      return Math.atan2(Math.sin(0.02 * s * y + t), col) +
+             Math.cos(0.008 * s * y + t) * 2.0;
     },
 
-    /* 16 — Coral Growth */
-    (x, y, t, s) => {
-      const w  = warp(0.003*s*x, 0.003*s*y, 0.3*t, 6);
-      return fBm(w.x, w.y, 6) * 8 + Math.sin(0.5*t) * 2;
+    /* ── 16 · Coral Growth ──────────────────────────
+       Deep iterative warp + high-octave fBm.
+       Organic branching coral-reef structure.
+    ─────────────────────────────────────────────── */
+    function coralGrowth(x, y, t, s) {
+      const w = warp(0.003 * s * x, 0.003 * s * y, 0.3 * t, 6);
+      return fBm(w.x, w.y, 6) * 8.0 + Math.sin(0.5 * t) * 2.0;
     },
 
-    /* 17 — Quantum Field */
-    (x, y, t, s) => {
-      const n1  = noise2(0.008*s*x + 0.3*t, 0.008*s*y);
-      const n2  = noise2(0.004*s*x, 0.004*s*y + 0.2*t);
-      const interference = Math.sin(n1*12 + n2*8 + t);
-      const wave = Math.sin(0.006*s*x) * Math.cos(0.006*s*y);
-      return interference * 2 + wave * 3;
+    /* ── 17 · Quantum Field ─────────────────────────
+       Two noise layers interfere via sinusoids.
+       Simulates quantum probability wave overlap.
+    ─────────────────────────────────────────────── */
+    function quantumField(x, y, t, s) {
+      const n1  = noise2(0.008 * s * x + 0.3 * t, 0.008 * s * y);
+      const n2  = noise2(0.004 * s * x,            0.004 * s * y + 0.2 * t);
+      const intf = Math.sin(n1 * 12.0 + n2 * 8.0 + t);
+      const wave = Math.sin(0.006 * s * x) * Math.cos(0.006 * s * y);
+      return intf * 2.0 + wave * 3.0;
     },
 
-    /* 18 — Topographic Map */
-    (x, y, t, s) => {
-      const H_val = fBm(0.002*s*x + 0.05*t, 0.002*s*y, 8);
-      const contour = Math.sin(30 * H_val) * 0.5;
-      const gx = fBm(0.002*s*(x+1), 0.002*s*y, 8) - H_val;
-      const gy = fBm(0.002*s*x, 0.002*s*(y+1), 8) - H_val;
+    /* ── 18 · Topographic Map ───────────────────────
+       fBm heightfield gradient direction + contour lines.
+       Simulates elevation map flow.
+    ─────────────────────────────────────────────── */
+    function topographicMap(x, y, t, s) {
+      const eps  = 1.0;
+      const h00  = fBm(0.002 * s * x       + 0.05 * t, 0.002 * s * y,       8);
+      const h10  = fBm(0.002 * s * (x+eps) + 0.05 * t, 0.002 * s * y,       8);
+      const h01  = fBm(0.002 * s * x       + 0.05 * t, 0.002 * s * (y+eps), 8);
+      const gx   = h10 - h00;
+      const gy   = h01 - h00;
+      const contour = Math.sin(30.0 * h00) * 0.5;
       return Math.atan2(gy, gx) + contour;
     },
 
-    /* 19 — Mirror Flow */
-    (x, y, t) => {
-      const mx = Math.abs(x - cx), my = Math.abs(y - cy);
-      return 6 * fBm(0.005*mx + 0.2*t, 0.005*my, 4) +
-             0.8 * Math.sin(0.01*mx - 0.008*my + t);
+    /* ── 19 · Mirror Flow ───────────────────────────
+       Folded coordinates create bilateral symmetry.
+       Data streams that reflect across center axis.
+    ─────────────────────────────────────────────── */
+    function mirrorFlow(x, y, t) {
+      const mx = Math.abs(x - cx);
+      const my = Math.abs(y - cy);
+      return 6.0 * fBm(0.005 * mx + 0.2 * t, 0.005 * my, 4) +
+             0.8 * Math.sin(0.01 * mx - 0.008 * my + t);
     },
 
-    /* 20 — Smoke Simulation */
-    (x, y, t, s) => {
-      const w1   = warp(0.002*s*x, 0.002*s*y, 0.5*t, 3);
-      const w2   = warp(w1.x, w1.y, 0.3*t, 2);
-      const rise = -0.5 + (1 - y/H) * 0.8;
-      return fBm(w2.x, w2.y, 5) * 6 + rise * 2 + 1.5*Math.PI;
+    /* ── 20 · Smoke Simulation ──────────────────────
+       Double-warp with upward buoyancy vector.
+       Thermal convection column simulation.
+    ─────────────────────────────────────────────── */
+    function smokeSimulation(x, y, t, s) {
+      const w1   = warp(0.002 * s * x, 0.002 * s * y, 0.5 * t, 3);
+      const w2   = warp(w1.x, w1.y, 0.3 * t, 2);
+      const rise = -0.5 + (1.0 - y / H) * 0.8;
+      return fBm(w2.x, w2.y, 5) * 6.0 + rise * 2.0 + 1.5 * Math.PI;
     },
 
-    /* 21 — Crystal Lattice */
-    (x, y, t, s) => {
-      const ax = Math.sin(0.01*s*x*4 + t) * Math.cos(0.01*s*y*3);
-      const ay = Math.cos(0.01*s*x*3 - t) * Math.sin(0.01*s*y*4);
-      const nn = noise2(0.01*s*x + 0.1*t, 0.01*s*y) * 2;
+    /* ── 21 · Crystal Lattice ───────────────────────
+       Quadrature sine/cosine lattice + noise jitter.
+       Angular crystalline structure.
+    ─────────────────────────────────────────────── */
+    function crystalLattice(x, y, t, s) {
+      const ax = Math.sin(0.01 * s * x * 4.0 + t) * Math.cos(0.01 * s * y * 3.0);
+      const ay = Math.cos(0.01 * s * x * 3.0 - t) * Math.sin(0.01 * s * y * 4.0);
+      const nn = noise2(0.01 * s * x + 0.1 * t, 0.01 * s * y) * 2.0;
       return Math.atan2(ay + nn, ax + nn);
     },
 
-    /* 22 — Nebula */
-    (x, y, t, s) => {
-      const dx = x - cx, dy = y - cy;
-      const r  = Math.hypot(dx, dy);
-      const th = Math.atan2(dy, dx);
-      const rN = r / W;
-      const w  = warp(0.001*s*x, 0.001*s*y, 0.2*t, 5);
-      return fBm(3*th + 0.1*t, 5*s*rN, 6) * 5 + Math.sin(3*w.x + 3*w.y) * 2 + 0.3*th;
+    /* ── 22 · Nebula ────────────────────────────────
+       Polar fBm + domain warp + angle bias.
+       Deep-space gas cloud formation.
+    ─────────────────────────────────────────────── */
+    function nebula(x, y, t, s) {
+      const dx    = x - cx;
+      const dy    = y - cy;
+      const r     = Math.hypot(dx, dy);
+      const theta = Math.atan2(dy, dx);
+      const rNorm = r / W;
+      const w     = warp(0.001 * s * x, 0.001 * s * y, 0.2 * t, 5);
+      const fb    = fBm(3.0 * theta + 0.1 * t, 5.0 * s * rNorm, 6);
+      return fb * 5.0 + Math.sin(3.0 * w.x + 3.0 * w.y) * 2.0 + 0.3 * theta;
     },
 
-    /* 23 — Woven Fabric */
-    (x, y, t, s) => {
-      const wx = Math.sin(0.02*s*x + t) * 20;
-      const wy = Math.cos(0.02*s*y - 0.7*t) * 20;
-      const nn = noise2(0.003*s*x, 0.003*s*y + 0.1*t);
-      return Math.atan2(Math.sin(0.01*s*(y + wx)), Math.cos(0.01*s*(x + wy))) + nn * 2;
+    /* ── 23 · Woven Fabric ──────────────────────────
+       Interlocking sine/cosine offsets + noise weft.
+       Simulates thread crossings in textile.
+    ─────────────────────────────────────────────── */
+    function wovenFabric(x, y, t, s) {
+      const wx = Math.sin(0.02 * s * x + t) * 20.0;
+      const wy = Math.cos(0.02 * s * y - 0.7 * t) * 20.0;
+      const nn = noise2(0.003 * s * x, 0.003 * s * y + 0.1 * t);
+      return Math.atan2(
+        Math.sin(0.01 * s * (y + wx)),
+        Math.cos(0.01 * s * (x + wy))
+      ) + nn * 2.0;
     },
 
-    /* 24 — Black Hole */
-    (x, y, t, s) => {
-      const dx   = x - cx, dy = y - cy;
-      const r    = Math.hypot(dx, dy);
-      const th   = Math.atan2(dy, dx);
-      const pull = 1 / (0.003*r + 0.1);
-      const spin = th + pull * 2 + 0.3*t;
-      const wp   = Math.sin(0.01*s*r - 2*t) * 0.5;
+    /* ── 24 · Black Hole ────────────────────────────
+       Angular + inverse-radial pull + wave warp.
+       Gravitational lens spacetime distortion.
+    ─────────────────────────────────────────────── */
+    function blackHole(x, y, t, s) {
+      const dx    = x - cx;
+      const dy    = y - cy;
+      const r     = Math.hypot(dx, dy);
+      const theta = Math.atan2(dy, dx);
+      const pull  = 1.0 / (0.003 * r + 0.1);
+      const spin  = theta + pull * 2.0 + 0.3 * t;
+      const wp    = Math.sin(0.01 * s * r - 2.0 * t) * 0.5;
       return spin + wp;
     },
 
-    /* 25 — Aurora Borealis */
-    (x, y, t, s) => {
+    /* ── 25 · Aurora Borealis ───────────────────────
+       Vertical curtain sine + horizontal fBm drift.
+       Atmospheric plasma ribbon simulation.
+    ─────────────────────────────────────────────── */
+    function auroraBorealis(x, y, t, s) {
       const fy      = y / H;
-      const curtain = Math.sin(0.005*s*x + t + Math.sin(8*fy + t)*2) * 3;
-      const drift   = fBm(0.001*s*x + 0.1*t, 0.003*s*y, 5);
-      return curtain + drift * 4 - Math.PI/2;
+      const curtain = Math.sin(0.005 * s * x + t +
+                               Math.sin(8.0 * fy + t) * 2.0) * 3.0;
+      const drift   = fBm(0.001 * s * x + 0.1 * t, 0.003 * s * y, 5);
+      return curtain + drift * 4.0 - Math.PI / 2.0;
     },
 
-    /* 26 — Voronoi Flow (8 seed points) */
-    (x, y, t) => {
-      const seeds = Array.from({length: 8}, (_, i) => ({
-        px: cx + W * 0.4 * Math.cos(2*Math.PI*i/8 + t*0.3),
-        py: cy + H * 0.4 * Math.sin(2*Math.PI*i/8 + t*0.2)
-      }));
-      let minD = Infinity, nearPx = 0, nearPy = 0;
-      seeds.forEach(s => {
-        const d = Math.hypot(x - s.px, y - s.py);
-        if (d < minD) { minD = d; nearPx = s.px; nearPy = s.py; }
-      });
-      return Math.atan2(cy - nearPy, cx - nearPx) + 0.3 * Math.sin(0.5*t);
+    /* ── 26 · Voronoi Flow ──────────────────────────
+       8 moving seed points, angle toward nearest.
+       Cellular automata-like territory flow.
+    ─────────────────────────────────────────────── */
+    function voronoiFlow(x, y, t) {
+      const COUNT = 8;
+      let minDist  = Infinity;
+      let nearPx   = 0;
+      let nearPy   = 0;
+
+      for (let i = 0; i < COUNT; i++) {
+        const angle = (2.0 * Math.PI * i / COUNT);
+        const px    = cx + W * 0.38 * Math.cos(angle + t * 0.25 + i * 0.7);
+        const py    = cy + H * 0.38 * Math.sin(angle + t * 0.18 + i * 0.5);
+        const dist  = Math.hypot(x - px, y - py);
+        if (dist < minDist) { minDist = dist; nearPx = px; nearPy = py; }
+      }
+
+      return Math.atan2(cy - nearPy, cx - nearPx) +
+             0.3 * Math.sin(0.5 * t);
     },
 
-    /* 27 — Interference Rings (3 sources) */
-    (x, y, t, s) => {
-      const srcs = [
-        { px: cx - W*0.2, py: cy },
-        { px: cx + W*0.2, py: cy },
-        { px: cx,         py: cy - H*0.2 }
+    /* ── 27 · Interference Rings ────────────────────
+       3 ripple sources summed.
+       Constructive/destructive wave interference.
+    ─────────────────────────────────────────────── */
+    function interferenceRings(x, y, t, s) {
+      const sources = [
+        { px: cx - W * 0.22, py: cy           },
+        { px: cx + W * 0.22, py: cy           },
+        { px: cx,            py: cy - H * 0.22 }
       ];
-      return srcs.reduce((sum, src, i) => {
+
+      return sources.reduce((sum, src, i) => {
         const d = Math.hypot(x - src.px, y - src.py);
-        return sum + Math.sin(0.02*s*d - t * (1 + 0.3*i));
-      }, 0);
+        return sum + Math.sin(0.02 * s * d - t * (1.0 + 0.3 * i));
+      }, 0.0);
     },
 
-    /* 28 — Tornado */
-    (x, y, t, s) => {
-      const dx    = x - cx, dy = y - cy;
+    /* ── 28 · Tornado ───────────────────────────────
+       Angular + inverse-radial spin + turbulence.
+       Tapered vortex column.
+    ─────────────────────────────────────────────── */
+    function tornado(x, y, t, s) {
+      const dx    = x - cx;
+      const dy    = y - cy;
       const r     = Math.hypot(dx, dy);
-      const th    = Math.atan2(dy, dx);
-      const yN    = y / H;
-      const width = (1 - yN) * 0.3 + 0.05;
-      const spin  = 3.0 / (r/H + 0.1) * width;
-      const tb    = turb(2*s*th, 5*s*yN + t, 4);
-      return th + spin + 0.5*t + tb * 2;
+      const theta = Math.atan2(dy, dx);
+      const yNorm = y / H;
+      const width = (1.0 - yNorm) * 0.3 + 0.05;
+      const spin  = 3.0 / (r / H + 0.1) * width;
+      const tb    = turb(2.0 * s * theta, 5.0 * s * yNorm + t, 4);
+      return theta + spin + 0.5 * t + tb * 2.0;
     },
 
-    /* 29 — Neural Network (6 nodes) */
-    (x, y, t, s) => {
-      const nodes = Array.from({length: 6}, (_, i) => ({
-        nx: cx + W * 0.35 * Math.cos(2*Math.PI*i/6 + 0.4*t),
-        ny: cy + H * 0.35 * Math.sin(2*Math.PI*i/6 + 0.3*t)
-      }));
-      let sum = 0;
-      nodes.forEach((n, i) => {
-        const d = Math.hypot(x - n.nx, y - n.ny);
-        const w = Math.exp(-0.005*s*d);
-        sum += Math.sin(0.01*s*d + t + i) * w;
-      });
-      return sum * 3;
+    /* ── 29 · Neural Network ────────────────────────
+       6 orbital nodes emit weighted sine waves.
+       Simulates axon signal propagation.
+    ─────────────────────────────────────────────── */
+    function neuralNetwork(x, y, t, s) {
+      const NODE_COUNT = 6;
+      let sum = 0.0;
+
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const angle  = (2.0 * Math.PI * i / NODE_COUNT);
+        const nx     = cx + W * 0.32 * Math.cos(angle + 0.4 * t);
+        const ny     = cy + H * 0.32 * Math.sin(angle + 0.3 * t + i);
+        const d      = Math.hypot(x - nx, y - ny);
+        const weight = Math.exp(-0.005 * s * d);
+        sum += Math.sin(0.01 * s * d + t + i) * weight;
+      }
+
+      return sum * 3.0;
     },
 
-    /* 30 — Galaxy Arm */
-    (x, y, t, s) => {
-      const dx    = x - cx, dy = y - cy;
-      const r     = Math.hypot(dx, dy);
-      const th    = Math.atan2(dy, dx);
-      const spiral= th - 0.6*s * Math.log(r + 1);
-      const arm   = Math.sin(spiral * 2 + 0.3*t) * 0.5;
-      const fb    = fBm(th * s, 0.003*s*r + 0.05*t, 4);
-      return th + arm + fb * 2 + Math.PI/2;
+    /* ── 30 · Galaxy Arm ────────────────────────────
+       Multi-arm logarithmic spiral + fBm texture.
+       Barred spiral galaxy simulation.
+    ─────────────────────────────────────────────── */
+    function galaxyArm(x, y, t, s) {
+      const dx     = x - cx;
+      const dy     = y - cy;
+      const r      = Math.hypot(dx, dy);
+      const theta  = Math.atan2(dy, dx);
+      const spiral = theta - 0.6 * s * Math.log(r + 1.0);
+      const arm    = Math.sin(spiral * 2.0 + 0.3 * t) * 0.5;
+      const fb     = fBm(theta * s, 0.003 * s * r + 0.05 * t, 4);
+      return theta + arm + fb * 2.0 + Math.PI / 2.0;
     },
 
-    /* 31 — Liquid Marble */
-    (x, y, t) => {
-      return Math.sin(6 * fBm(0.004*x + t, 0.004*y - t, 4)) +
-             Math.cos(4 * fBm(0.006*x, 0.006*y + t, 3));
+    /* ── 31 · Liquid Marble ─────────────────────────
+       fBm inside sin/cos shells, two layers.
+       Marble stone veining simulation.
+    ─────────────────────────────────────────────── */
+    function liquidMarble(x, y, t) {
+      const a = Math.sin(6.0 * fBm(0.004 * x + t, 0.004 * y - t, 4));
+      const b = Math.cos(4.0 * fBm(0.006 * x,     0.006 * y + t, 3));
+      return a + b;
     },
 
-    /* 32 — Solar Flare */
-    (x, y, t) => {
-      const r  = Math.hypot(x - cx, y - cy);
-      const th = Math.atan2(y - cy, x - cx);
-      return th + 4 * Math.sin(0.03*r - 2*t) + 2 * noise2(0.01*x + t, 0.01*y);
+    /* ── 32 · Solar Flare ───────────────────────────
+       Angular + radial sine ejection + noise corona.
+       Coronal mass ejection from a star.
+    ─────────────────────────────────────────────── */
+    function solarFlare(x, y, t) {
+      const r     = Math.hypot(x - cx, y - cy);
+      const theta = Math.atan2(y - cy, x - cx);
+      return theta +
+             4.0 * Math.sin(0.03 * r - 2.0 * t) +
+             2.0 * noise2(0.01 * x + t, 0.01 * y);
     },
 
-    /* 33 — Frozen Veins */
-    (x, y, t) => {
+    /* ── 33 · Frozen Veins ──────────────────────────
+       Noise gradient direction + contour snap.
+       Ice crystal dendritic growth.
+    ─────────────────────────────────────────────── */
+    function frozenVeins(x, y, t) {
       const eps = 1.0;
-      const nn  = noise2(0.01*x, 0.01*y);
-      const dx2 = noise2(0.01*(x+eps), 0.01*y) - nn;
-      const dy2 = noise2(0.01*x, 0.01*(y+eps)) - nn;
-      return Math.atan2(dy2, dx2) + 0.4 * Math.sin(18*nn);
+      const n   = noise2(0.01 * x, 0.01 * y);
+      const dx  = noise2(0.01 * (x + eps), 0.01 * y) - n;
+      const dy  = noise2(0.01 * x, 0.01 * (y + eps)) - n;
+      return Math.atan2(dy, dx) + 0.4 * Math.sin(18.0 * n);
     },
 
-    /* 34 — Velvet Fold */
-    (x, y, t) => {
-      return Math.sin(0.004*x + 3 * fBm(0.003*y, 0.003*x + t, 4)) *
-             Math.cos(0.004*y - t);
+    /* ── 34 · Velvet Fold ───────────────────────────
+       fBm-folded sine × cosine product.
+       Soft textile crease simulation.
+    ─────────────────────────────────────────────── */
+    function velvetFold(x, y, t) {
+      const fold = Math.sin(0.004 * x +
+                   3.0 * fBm(0.003 * y, 0.003 * x + t, 4));
+      return fold * Math.cos(0.004 * y - t);
     },
 
-    /* 35 — Band Current */
-    (x, y, t) => {
-      return Math.sin(0.012*x + t) + 0.7 * Math.cos(0.018*y - 0.6*t) +
-             0.4 * Math.sin(0.01*(x - y));
+    /* ── 35 · Band Current ──────────────────────────
+       Three additive sinusoid bands.
+       Laminar flow in parallel streams.
+    ─────────────────────────────────────────────── */
+    function bandCurrent(x, y, t) {
+      return Math.sin(0.012 * x + t) +
+             0.7 * Math.cos(0.018 * y - 0.6 * t) +
+             0.4 * Math.sin(0.01 * (x - y));
     },
 
-    /* 36 — Sonic Ripples */
-    (x, y, t) => {
+    /* ── 36 · Sonic Ripples ─────────────────────────
+       Two concentric radial sine waves.
+       Audio speaker membrane vibration.
+    ─────────────────────────────────────────────── */
+    function sonicRipples(x, y, t) {
       const r = Math.hypot(x - cx, y - cy);
-      return Math.sin(0.03*r - 3*t) + 0.5 * Math.sin(0.05*r + 2*t);
+      return Math.sin(0.03 * r - 3.0 * t) +
+             0.5 * Math.sin(0.05 * r + 2.0 * t);
     },
 
-    /* 37 — Plasma Mesh */
-    (x, y, t) => {
-      return Math.sin(0.01*x + t) + Math.sin(0.01*y - t) + Math.sin(0.01*(x+y) + 0.5*t);
+    /* ── 37 · Plasma Mesh ───────────────────────────
+       Three additive sinusoids (x, y, diagonal).
+       Classic plasma screen effect.
+    ─────────────────────────────────────────────── */
+    function plasmaMesh(x, y, t) {
+      return Math.sin(0.01 * x + t) +
+             Math.sin(0.01 * y - t) +
+             Math.sin(0.01 * (x + y) + 0.5 * t);
     },
 
-    /* 38 — Marble Vein */
-    (x, y, t) => {
-      return Math.sin(0.01*x + 5 * fBm(0.006*x, 0.006*y + t, 5));
+    /* ── 38 · Marble Vein ───────────────────────────
+       fBm-displaced horizontal sine.
+       Stone marble geological veining.
+    ─────────────────────────────────────────────── */
+    function marbleVein(x, y, t) {
+      return Math.sin(0.01 * x + 5.0 * fBm(0.006 * x, 0.006 * y + t, 5));
     },
 
-    /* 39 — Hyper Tunnel */
-    (x, y, t) => {
-      const r  = Math.hypot(x - cx, y - cy);
-      const th = Math.atan2(y - cy, x - cx);
-      return th + 8/(r + 1) + Math.sin(0.05*r - 2*t);
+    /* ── 39 · Hyper Tunnel ──────────────────────────
+       Angular + inverse-radius + radial sine.
+       Infinite tunnel perspective distortion.
+    ─────────────────────────────────────────────── */
+    function hyperTunnel(x, y, t) {
+      const r     = Math.hypot(x - cx, y - cy);
+      const theta = Math.atan2(y - cy, x - cx);
+      return theta + 8.0 / (r + 1.0) + Math.sin(0.05 * r - 2.0 * t);
     },
 
-    /* 40 — Biofilm Drift */
-    (x, y, t) => {
-      const w = warp(0.004*x, 0.004*y, t, 3);
-      return 6 * fBm(w.x, w.y, 5) + 0.8 * Math.sin(0.2*t);
+    /* ── 40 · Biofilm Drift ─────────────────────────
+       Shallow warp + high-amplitude fBm.
+       Microscopic organism colony motion.
+    ─────────────────────────────────────────────── */
+    function biofilmDrift(x, y, t) {
+      const w = warp(0.004 * x, 0.004 * y, t, 3);
+      return 6.0 * fBm(w.x, w.y, 5) + 0.8 * Math.sin(0.2 * t);
     },
 
-    /* 41 — Grid Stream */
-    (x, y, t) => {
-      const gx = Math.floor(x / 60);
-      const gy = Math.floor(y / 60);
-      return noise2(0.4*gx + 0.1*t, 0.4*gy) * 2*Math.PI + 0.3 * Math.sin(gx + gy + t);
+    /* ── 41 · Grid Stream ───────────────────────────
+       Coarse grid noise × 2π + sine modulation.
+       Circuit board signal routing.
+    ─────────────────────────────────────────────── */
+    function gridStream(x, y, t) {
+      const gx = Math.floor(x / 60.0);
+      const gy = Math.floor(y / 60.0);
+      return noise2(0.4 * gx + 0.1 * t, 0.4 * gy) * 2.0 * Math.PI +
+             0.3 * Math.sin(gx + gy + t);
     },
 
-    /* 42 — Cloud Chamber */
-    (x, y, t, s) => {
+    /* ── 42 · Cloud Chamber ─────────────────────────
+       fBm gradient angle + additive sine.
+       Particle physics detector track simulation.
+    ─────────────────────────────────────────────── */
+    function cloudChamber(x, y, t) {
       const eps = 1.0;
-      const fb  = fBm(0.003*x + 0.05*t, 0.003*y, 6);
-      const gx  = fBm(0.003*(x+eps) + 0.05*t, 0.003*y, 6) - fb;
-      const gy  = fBm(0.003*x + 0.05*t, 0.003*(y+eps), 6) - fb;
-      return Math.atan2(gy, gx) + 0.6 * Math.sin(0.01*x + 0.01*y + t);
+      const fb  = fBm(0.003 * x + 0.05 * t, 0.003 * y, 6);
+      const gx  = fBm(0.003 * (x + eps) + 0.05 * t, 0.003 * y, 6) - fb;
+      const gy  = fBm(0.003 * x + 0.05 * t, 0.003 * (y + eps), 6) - fb;
+      return Math.atan2(gy, gx) + 0.6 * Math.sin(0.01 * x + 0.01 * y + t);
     },
 
-    /* 43 — Ink Diffusion */
-    (x, y, t) => {
-      const w = warp(0.002*x, 0.002*y, 0.2*t, 4);
+    /* ── 43 · Ink Diffusion ─────────────────────────
+       Warped fBm with slow drift.
+       Ink drop spreading in water.
+    ─────────────────────────────────────────────── */
+    function inkDiffusion(x, y, t) {
+      const w = warp(0.002 * x, 0.002 * y, 0.2 * t, 4);
       return fBm(w.x, w.y, 6) + 0.3 * Math.sin(t);
     },
 
-    /* 44 — Luminous Web (8 anchors) */
-    (x, y, t) => {
-      const anchors = Array.from({length: 8}, (_, i) => ({
-        ax: cx + W * 0.4 * Math.cos(2*Math.PI*i/8 + 0.1*t),
-        ay: cy + H * 0.4 * Math.sin(2*Math.PI*i/8)
-      }));
-      let sum = 0;
-      anchors.forEach(a => {
-        const d = Math.hypot(x - a.ax, y - a.ay);
-        sum += Math.atan2(y - a.ay, x - a.ax) / (d * 0.01 + 1);
-      });
+    /* ── 44 · Luminous Web ──────────────────────────
+       8 moving anchors, inverse-distance atan sum.
+       Bioluminescent spider web structure.
+    ─────────────────────────────────────────────── */
+    function luminousWeb(x, y, t) {
+      const ANCHORS = 8;
+      let sum = 0.0;
+
+      for (let i = 0; i < ANCHORS; i++) {
+        const angle = (2.0 * Math.PI * i / ANCHORS) + 0.1 * t;
+        const ax    = cx + W * 0.4 * Math.cos(angle);
+        const ay    = cy + H * 0.4 * Math.sin(angle);
+        const d     = Math.hypot(x - ax, y - ay);
+        sum += Math.atan2(y - ay, x - ax) / (d * 0.01 + 1.0);
+      }
+
       return sum;
     },
 
-    /* 45 — Harmonic Tiles */
-    (x, y, t, s) => {
-      const sz = 80 / s;
-      const fx = x/sz + t, fy = y/sz - t;
-      return Math.sin(2*Math.PI*(fx - Math.floor(fx))) +
-             Math.cos(2*Math.PI*(fy - Math.floor(fy)));
+    /* ── 45 · Harmonic Tiles ────────────────────────
+       Fractional coordinate sine + cosine tiling.
+       Repeating harmonic wave tessellation.
+    ─────────────────────────────────────────────── */
+    function harmonicTiles(x, y, t, s) {
+      const sz = 80.0 / s;
+      const fx = x / sz + t;
+      const fy = y / sz - t;
+      const fracFx = fx - Math.floor(fx);
+      const fracFy = fy - Math.floor(fy);
+      return Math.sin(2.0 * Math.PI * fracFx) +
+             Math.cos(2.0 * Math.PI * fracFy);
     },
 
-    /* 46 — Spiral Garden */
-    (x, y, t) => {
-      const dx = x - cx, dy = y - cy;
+    /* ── 46 · Spiral Garden ─────────────────────────
+       Angular + linear-radial + multi-arm sine.
+       Phyllotaxis-inspired spiral arms.
+    ─────────────────────────────────────────────── */
+    function spiralGarden(x, y, t) {
+      const dx    = x - cx;
+      const dy    = y - cy;
+      const r     = Math.hypot(dx, dy);
+      const theta = Math.atan2(dy, dx);
+      return theta + 0.4 * r * 0.01 + Math.sin(5.0 * theta - t);
+    },
+
+    /* ── 47 · Mercury Flow ──────────────────────────
+       Noise-displaced sinusoids on both axes.
+       Liquid metal surface tension ripple.
+    ─────────────────────────────────────────────── */
+    function mercuryFlow(x, y, t) {
+      const nx = noise2(0.006 * x + t, 0.006 * y);
+      const ny = noise2(0.006 * y,     0.006 * x - t);
+      return Math.sin(0.005 * x + 4.0 * nx) +
+             Math.cos(0.005 * y - 4.0 * ny);
+    },
+
+    /* ── 48 · Prism Wave ────────────────────────────
+       Multiplicative sine×sine + diagonal cosine.
+       Light refraction through geometric prism.
+    ─────────────────────────────────────────────── */
+    function prismWave(x, y, t) {
+      return Math.sin(0.008 * x + t) * Math.sin(0.008 * y - t) +
+             Math.cos(0.012 * (x - y));
+    },
+
+    /* ── 49 · Orbit Net ─────────────────────────────
+       5 orbital centers, angular sum + ripple.
+       Planetary gravitational field lines.
+    ─────────────────────────────────────────────── */
+    function orbitNet(x, y, t) {
+      const ORBITS = 5;
+      let sum = 0.0;
+
+      for (let i = 0; i < ORBITS; i++) {
+        const angle = (2.0 * Math.PI * i / ORBITS) + t * 0.22;
+        const ox    = cx + W * 0.28 * Math.cos(angle);
+        const oy    = cy + H * 0.28 * Math.sin(angle);
+        const d     = Math.hypot(x - ox, y - oy);
+        sum += Math.atan2(y - oy, x - ox) +
+               0.2 * Math.sin(0.02 * d - t);
+      }
+
+      return sum;
+    },
+
+    /* ── 50 · Ember Drift ───────────────────────────
+       fBm + vertical buoyancy gradient.
+       Hot ember particle rising in heat column.
+    ─────────────────────────────────────────────── */
+    function emberDrift(x, y, t) {
+      return 5.0 * fBm(0.004 * x + 0.1 * t, 0.004 * y, 4) +
+             0.7 * (1.0 - y / H);
+    },
+
+    /* ── 51 · Glass Refraction ──────────────────────
+       atan2 of noise-displaced sine/cosine.
+       Light bending through curved glass.
+    ─────────────────────────────────────────────── */
+    function glassRefraction(x, y, t) {
+      const n1 = noise2(0.01 * x, 0.01 * y + t);
+      const n2 = noise2(0.01 * y, 0.01 * x - t);
+      return Math.atan2(
+        Math.sin(0.02 * x + 3.0 * n1),
+        Math.cos(0.02 * y - 3.0 * n2)
+      );
+    },
+
+    /* ── 52 · Ocean Current ─────────────────────────
+       Drifting fBm + sinusoidal latitude flow.
+       Ocean gyre circulation pattern.
+    ─────────────────────────────────────────────── */
+    function oceanCurrent(x, y, t) {
+      return 4.0 * fBm(0.002 * x + 0.05 * t,
+                       0.002 * y - 0.03 * t, 5) +
+             0.4 * Math.sin(0.006 * y + t);
+    },
+
+    /* ── 53 · Silk Bloom ────────────────────────────
+       Sine×cosine product + fBm overlay.
+       Thin silk scarf billowing in wind.
+    ─────────────────────────────────────────────── */
+    function silkBloom(x, y, t) {
+      return Math.sin(0.003 * x + t) * Math.cos(0.003 * y - t) +
+             2.0 * fBm(0.005 * x, 0.005 * y + t, 3);
+    },
+
+    /* ── 54 · Flux Rings ────────────────────────────
+       Radial × angular product.
+       Magnetic flux tube cross-section.
+    ─────────────────────────────────────────────── */
+    function fluxRings(x, y, t) {
+      const r     = Math.hypot(x - cx, y - cy);
+      const theta = Math.atan2(y - cy, x - cx);
+      return Math.sin(0.04 * r - t) * Math.cos(6.0 * theta + 0.5 * t);
+    },
+
+    /* ── 55 · Industrial Flow ───────────────────────
+       atan2 of noise-displaced sine/cosine (coarser).
+       Heavy machinery coolant channel flow.
+    ─────────────────────────────────────────────── */
+    function industrialFlow(x, y, t) {
+      const n1 = noise2(0.01 * x, 0.01 * y + t);
+      const n2 = noise2(0.01 * y, 0.01 * x - t);
+      return Math.atan2(
+        Math.sin(0.02 * x + 2.0 * n1),
+        Math.cos(0.02 * y - 2.0 * n2)
+      );
+    },
+
+    /* ── 56 · Star Nursery ──────────────────────────
+       Slow-drifting fBm + polar ripple.
+       Interstellar cloud collapsing into stars.
+    ─────────────────────────────────────────────── */
+    function starNursery(x, y, t) {
+      const r     = Math.hypot(x - cx, y - cy);
+      const theta = Math.atan2(y - cy, x - cx);
+      return 6.0 * fBm(0.002 * x, 0.002 * y + 0.04 * t, 5) +
+             Math.sin(0.02 * r + theta - t);
+    },
+
+    /* ── 57 · Wave Lattice ──────────────────────────
+       Three-component additive wave grid.
+       Standing wave interference lattice.
+    ─────────────────────────────────────────────── */
+    function waveLattice(x, y, t) {
+      return Math.sin(0.01 * x + t) +
+             Math.cos(0.01 * y - t) +
+             Math.sin(0.01 * (x - y));
+    },
+
+    /* ── 58 · Moiré Pulse ───────────────────────────
+       Two near-frequency sinusoids beating.
+       Optical moiré interference pattern.
+    ─────────────────────────────────────────────── */
+    function moirePulse(x, y, t) {
+      return Math.sin(0.03  * x + t) +
+             Math.sin(0.031 * y - 0.8 * t);
+    },
+
+    /* ── 59 · Orbital Current ───────────────────────
+       Angular + radial sine + noise jitter.
+       Charged particle in magnetic field orbit.
+    ─────────────────────────────────────────────── */
+    function orbitalCurrent(x, y, t) {
+      const dx = x - cx;
+      const dy = y - cy;
       const r  = Math.hypot(dx, dy);
-      const th = Math.atan2(dy, dx);
-      return th + 0.4*r*0.01 + Math.sin(5*th - t);
-    },
-
-    /* 47 — Mercury Flow */
-    (x, y, t) => {
-      return Math.sin(0.005*x + 4 * noise2(0.006*x + t, 0.006*y)) +
-             Math.cos(0.005*y - 4 * noise2(0.006*y, 0.006*x - t));
-    },
-
-    /* 48 — Prism Wave */
-    (x, y, t) => {
-      return Math.sin(0.008*x + t) * Math.sin(0.008*y - t) + Math.cos(0.012*(x - y));
-    },
-
-    /* 49 — Orbit Net (5 orbital centers) */
-    (x, y, t) => {
-      const orbs = Array.from({length: 5}, (_, i) => ({
-        ox: cx + W * 0.3 * Math.cos(2*Math.PI*i/5 + t * 0.25),
-        oy: cy + H * 0.3 * Math.sin(2*Math.PI*i/5 + t * 0.2)
-      }));
-      let sum = 0;
-      orbs.forEach(o => {
-        const d = Math.hypot(x - o.ox, y - o.oy);
-        sum += Math.atan2(y - o.oy, x - o.ox) + 0.2 * Math.sin(0.02*d - t);
-      });
-      return sum;
-    },
-
-    /* 50 — Ember Drift */
-    (x, y, t) => {
-      return 5 * fBm(0.004*x + 0.1*t, 0.004*y, 4) + 0.7 * (1 - y/H);
-    },
-
-    /* 51 — Glass Refraction */
-    (x, y, t) => {
-      return Math.atan2(
-        Math.sin(0.02*x + 3 * noise2(0.01*x, 0.01*y + t)),
-        Math.cos(0.02*y - 3 * noise2(0.01*y, 0.01*x - t))
-      );
-    },
-
-    /* 52 — Ocean Current */
-    (x, y, t) => {
-      return 4 * fBm(0.002*x + 0.05*t, 0.002*y - 0.03*t, 5) + 0.4 * Math.sin(0.006*y + t);
-    },
-
-    /* 53 — Silk Bloom */
-    (x, y, t) => {
-      return Math.sin(0.003*x + t) * Math.cos(0.003*y - t) +
-             2 * fBm(0.005*x, 0.005*y + t, 3);
-    },
-
-    /* 54 — Flux Rings */
-    (x, y, t) => {
-      const r  = Math.hypot(x - cx, y - cy);
-      const th = Math.atan2(y - cy, x - cx);
-      return Math.sin(0.04*r - t) * Math.cos(6*th + 0.5*t);
-    },
-
-    /* 55 — Industrial Flow */
-    (x, y, t) => {
-      return Math.atan2(
-        Math.sin(0.02*x + 2 * noise2(0.01*x, 0.01*y + t)),
-        Math.cos(0.02*y - 2 * noise2(0.01*y, 0.01*x - t))
-      );
-    },
-
-    /* 56 — Star Nursery */
-    (x, y, t) => {
-      const r  = Math.hypot(x - cx, y - cy);
-      const th = Math.atan2(y - cy, x - cx);
-      return 6 * fBm(0.002*x, 0.002*y + 0.04*t, 5) + Math.sin(0.02*r + th - t);
-    },
-
-    /* 57 — Wave Lattice */
-    (x, y, t) => {
-      return Math.sin(0.01*x + t) + Math.cos(0.01*y - t) + Math.sin(0.01*(x - y));
-    },
-
-    /* 58 — Moiré Pulse */
-    (x, y, t) => {
-      return Math.sin(0.03*x + t) + Math.sin(0.031*y - 0.8*t);
-    },
-
-    /* 59 — Orbital Current */
-    (x, y, t) => {
-      const dx = x - cx, dy = y - cy;
-      const r  = Math.sqrt(dx*dx + dy*dy);
       return Math.atan2(dy, dx) +
-             0.6 * Math.sin(0.025*r - t) +
-             0.25 * noise2(0.006*x, 0.006*y + 0.1*t);
+             0.6 * Math.sin(0.025 * r - t) +
+             0.25 * noise2(0.006 * x, 0.006 * y + 0.1 * t);
     },
 
-    /* 60 — Phantom Field */
-    (x, y, t) => {
-      const w = warp(0.003*x, 0.003*y, 0.15*t, 4);
-      return 7 * fBm(w.x, w.y, 6) + Math.atan2(y - cy, x - cx) * 0.2;
+    /* ── 60 · Phantom Field ─────────────────────────
+       Deep warp fBm + angular bias.
+       Invisible force field made visible.
+    ─────────────────────────────────────────────── */
+    function phantomField(x, y, t) {
+      const w = warp(0.003 * x, 0.003 * y, 0.15 * t, 4);
+      return 7.0 * fBm(w.x, w.y, 6) +
+             Math.atan2(y - cy, x - cx) * 0.2;
     }
-  ];
 
-  /* ══════════════════════════════════════════════
-     COLOUR PALETTE ENGINE
-  ══════════════════════════════════════════════ */
+  ]; // end FORMULAS
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 3 — COLOR ENGINE
+     Maps normalised [0..1] value to RGBA string
+     using the active cybernetic palette
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * Maps a normalised value [0,1] to an RGBA string.
-   * Palettes cycle through rich cybernetic gradients.
+   * valueToColor
+   * @param  {number} v     normalised value (any range, will be wrapped)
+   * @param  {number} alpha opacity [0..1]
+   * @return {string}       'rgba(r,g,b,a)'
    */
   function valueToColor(v, alpha) {
     // Wrap to [0, 1]
-    v = ((v % 1) + 1) % 1;
-    const t6 = v * 6;
-    const seg = Math.floor(t6);
-    const f   = t6 - seg;
+    v = ((v % 1.0) + 1.0) % 1.0;
 
-    let r, g, b;
-    // Cyan → Violet → Gold → Red → Cyan cybernetic cycle
-    switch (seg % 6) {
-      case 0: r = 0;   g = f;   b = 1;   break; // cyan phase
-      case 1: r = 0;   g = 1;   b = 1-f; break;
-      case 2: r = f;   g = 1;   b = 0;   break; // gold phase
-      case 3: r = 1;   g = 1-f; b = 0;   break;
-      case 4: r = 1;   g = 0;   b = f;   break; // violet/red phase
-      case 5: r = 1-f; g = 0;   b = 1;   break;
-    }
+    const palette = PALETTES[paletteIndex];
+    const count   = palette.length;
+    const scaled  = v * count;
+    const idx     = Math.floor(scaled) % count;
+    const next    = (idx + 1) % count;
+    const f       = scaled - Math.floor(scaled);
 
-    return `rgba(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)},${alpha})`;
+    const ca = palette[idx];
+    const cb = palette[next];
+
+    // Linear interpolation between adjacent palette colours
+    const r = Math.round(ca[0] + (cb[0] - ca[0]) * f);
+    const g = Math.round(ca[1] + (cb[1] - ca[1]) * f);
+    const b = Math.round(ca[2] + (cb[2] - ca[2]) * f);
+
+    return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
   }
 
-  /* ══════════════════════════════════════════════
-     PARTICLE SYSTEM
-  ══════════════════════════════════════════════ */
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 4 — PARTICLE CLASS
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  const TRAIL_LENGTH = 30;  // maximum trail points per particle
 
   class Particle {
-    constructor() { this.reset(true); }
 
-    reset(random = false) {
-      this.x    = random ? Math.random() * W : cx + (Math.random()-0.5) * W * 0.2;
-      this.y    = random ? Math.random() * H : cy + (Math.random()-0.5) * H * 0.2;
-      this.vx   = 0;
-      this.vy   = 0;
-      this.life = Math.random() * 200 + 60;
-      this.age  = 0;
-      this.speed = 1.2 + Math.random() * 1.8;
-      this.trail = []; // {x, y}
-      this.hueOffset = Math.random();
+    constructor() {
+      this.trail      = new Float32Array(TRAIL_LENGTH * 2); // [x0,y0,x1,y1,...]
+      this.trailCount = 0;
+      this.hueOffset  = Math.random();
+      this.speed      = 0;
+      this.vx         = 0;
+      this.vy         = 0;
+      this.age        = 0;
+      this.maxAge     = 0;
+      this.x          = 0;
+      this.y          = 0;
+      this.lineWidth  = 0;
+      this.reset(true);
     }
 
+    /**
+     * reset — re-initialise particle at random or center position
+     * @param {boolean} randomPos  true on first spawn, false on rebirth
+     */
+    reset(randomPos) {
+      // Spread initial positions across full canvas
+      if (randomPos) {
+        this.x = Math.random() * W;
+        this.y = Math.random() * H;
+      } else {
+        // Rebirth near center with small jitter
+        this.x = cx + (Math.random() - 0.5) * W * 0.3;
+        this.y = cy + (Math.random() - 0.5) * H * 0.3;
+      }
+
+      this.vx         = 0.0;
+      this.vy         = 0.0;
+      this.age        = 0;
+      this.maxAge     = 120 + Math.random() * 200;
+      this.speed      = 0.8 + Math.random() * 2.2;
+      this.trailCount = 0;
+      this.hueOffset  = Math.random();
+      this.lineWidth  = 0.6 + Math.random() * 0.8;
+    }
+
+    /**
+     * update — advance particle one frame
+     * @param {Function} formula  active formula function
+     * @param {number}   speed    global speed multiplier
+     * @param {number}   scale    global scale multiplier
+     * @param {number}   t        global time
+     */
     update(formula, speed, scale, t) {
+      // Sample the flow field angle at current position
       const angle = formula(this.x, this.y, t, scale);
 
-      // Smooth velocity
-      this.vx = this.vx * 0.85 + Math.cos(angle) * this.speed * speed * 0.15;
-      this.vy = this.vy * 0.85 + Math.sin(angle) * this.speed * speed * 0.15;
+      // Smooth velocity (steering toward flow direction)
+      const targetVx = Math.cos(angle) * this.speed * speed;
+      const targetVy = Math.sin(angle) * this.speed * speed;
 
-      this.trail.push({ x: this.x, y: this.y });
-      if (this.trail.length > 28) this.trail.shift();
+      // Exponential smoothing (reduces jitter, keeps motion fluid)
+      const smooth = 0.82;
+      this.vx = this.vx * smooth + targetVx * (1.0 - smooth);
+      this.vy = this.vy * smooth + targetVy * (1.0 - smooth);
 
-      this.x += this.vx;
-      this.y += this.vy;
-      this.age++;
+      // Store current position in trail buffer
+      // Shift trail array by inserting at beginning
+      if (this.trailCount < TRAIL_LENGTH) {
+        this.trailCount++;
+      }
+      // Move existing trail back one slot
+      for (let i = this.trailCount - 1; i > 0; i--) {
+        this.trail[i * 2    ] = this.trail[(i - 1) * 2    ];
+        this.trail[i * 2 + 1] = this.trail[(i - 1) * 2 + 1];
+      }
+      // Insert current position at front
+      this.trail[0] = this.x;
+      this.trail[1] = this.y;
+
+      // Advance position
+      this.x  += this.vx;
+      this.y  += this.vy;
+      this.age += 1;
 
       // Reset if out of bounds or too old
-      if (this.age > this.life || this.x < -10 || this.x > W+10 ||
-          this.y < -10 || this.y > H+10) {
-        this.reset();
+      if (this.age > this.maxAge  ||
+          this.x   < -20          ||
+          this.x   > W + 20       ||
+          this.y   < -20          ||
+          this.y   > H + 20) {
+        this.reset(false);
       }
     }
 
-    draw(ctx, t) {
-      if (this.trail.length < 2) return;
-      const lifeRatio = Math.min(this.age / this.life, 1);
-      const alpha     = (1 - lifeRatio) * 0.72;
-      const hue       = ((this.hueOffset + this.age * 0.003) % 1);
+    /**
+     * draw — render trail to canvas
+     * @param {CanvasRenderingContext2D} ctx
+     */
+    draw(ctx) {
+      if (this.trailCount < 2) return;
+
+      const lifeRatio = this.age / this.maxAge;
+      const baseAlpha = (1.0 - lifeRatio) * 0.70;
+      if (baseAlpha < 0.01) return;
+
+      // Hue drifts gently over time
+      const hue = (this.hueOffset + this.age * 0.0025) % 1.0;
 
       ctx.beginPath();
-      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      ctx.moveTo(this.trail[0], this.trail[1]);
 
-      for (let i = 1; i < this.trail.length; i++) {
-        const a = (i / this.trail.length) * alpha;
-        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      for (let i = 1; i < this.trailCount; i++) {
+        ctx.lineTo(this.trail[i * 2], this.trail[i * 2 + 1]);
       }
 
-      ctx.strokeStyle = valueToColor(hue, alpha);
-      ctx.lineWidth   = 0.9 + lifeRatio * 0.4;
+      // Trail fades toward tail
+      const tailAlpha = baseAlpha * 0.25;
+      const gradient  = ctx.createLinearGradient(
+        this.trail[0],                             // head x
+        this.trail[1],                             // head y
+        this.trail[(this.trailCount-1) * 2],       // tail x
+        this.trail[(this.trailCount-1) * 2 + 1]   // tail y
+      );
+      gradient.addColorStop(0.0, valueToColor(hue,           baseAlpha));
+      gradient.addColorStop(1.0, valueToColor(hue + 0.15,    tailAlpha));
+
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth   = this.lineWidth;
       ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
       ctx.stroke();
 
-      // Bright head dot
-      const head = this.trail[this.trail.length - 1];
+      // Bright head node (data packet)
       ctx.beginPath();
-      ctx.arc(head.x, head.y, 1.2, 0, Math.PI*2);
-      ctx.fillStyle = valueToColor(hue, alpha * 1.5);
+      ctx.arc(this.x, this.y, this.lineWidth * 1.4, 0, Math.PI * 2);
+      ctx.fillStyle = valueToColor(hue, Math.min(baseAlpha * 2.0, 1.0));
       ctx.fill();
+    }
+
+  } // end class Particle
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 5 — POOL MANAGEMENT
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  /**
+   * syncPool — grow or shrink the particle array
+   * to match params.density without GC thrashing.
+   */
+  function syncPool() {
+    const target = params.density | 0; // integer
+
+    // Grow
+    while (particles.length < target) {
+      particles.push(new Particle());
+    }
+
+    // Shrink (just truncate — no GC needed immediately)
+    if (particles.length > target) {
+      particles.length = target;
     }
   }
 
-  /* ══════════════════════════════════════════════
-     INIT & RESIZE
-  ══════════════════════════════════════════════ */
 
-  function init(canvasEl) {
-    canvas = canvasEl;
-    ctx    = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 6 — METRICS COMPUTATION
+     Feeds the SyncController with live data
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    // Build particle pool
-    particles = Array.from({ length: PARTICLE_COUNT }, () => new Particle());
+  /**
+   * computeMetrics — called once per frame
+   * Samples every Nth particle for performance.
+   */
+  function computeMetrics() {
+    let outSum   = 0.0;
+    let cwSum    = 0.0;
+    let energySum = 0.0;
+    const SAMPLE = 4; // sample every 4th particle
+    let count    = 0;
+
+    for (let i = 0; i < particles.length; i += SAMPLE) {
+      const p  = particles[i];
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const speed = Math.hypot(p.vx, p.vy);
+
+      // Outward flow: dot product of velocity with radial direction
+      const radialLen = Math.hypot(dx, dy) + 0.001;
+      outSum    += (p.vx * dx + p.vy * dy) / radialLen;
+
+      // Clockwise: cross product z-component
+      cwSum     += p.vx * dy - p.vy * dx;
+
+      energySum += speed;
+      count++;
+    }
+
+    if (count > 0) {
+      metrics.outwardFlow = outSum  / (count * 4.0);   // normalise approx
+      metrics.clockwise   = cwSum   > 0;
+      metrics.energy      = Math.min(energySum / (count * 4.0), 1.0);
+    }
+
+    // Frequency estimate: how fast t oscillates
+    metrics.frequency = Math.abs(Math.sin(t * 0.5)) * params.speed;
+    metrics.fps       = currentFPS;
   }
 
-  function resize() {
-    W = canvas.width  = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    cx = W * 0.5;
-    cy = H * 0.5;
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 7 — BACKGROUND RENDERING
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  /**
+   * drawBackground — semi-transparent fade overlay.
+   * Instead of ctx.clearRect, we paint a dark translucent
+   * rectangle each frame → creates the "temporal tail"
+   * motion blur that defines the flow-field aesthetic.
+   *
+   * Alpha tuned to params.chaos:
+   *   low chaos  → longer tails (slower fade)
+   *   high chaos → shorter tails (faster fade)
+   */
+  function drawBackground() {
+    // Map chaos [0..1] to alpha [0.08..0.30]
+    const fadeAlpha = 0.08 + params.chaos * 0.22;
+    ctx.fillStyle   = `rgba(0, 0, 8, ${fadeAlpha})`;
+    ctx.fillRect(0, 0, W, H);
   }
 
-  /* ══════════════════════════════════════════════
-     RENDER LOOP
-  ══════════════════════════════════════════════ */
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 8 — MAIN RENDER LOOP
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function render(timestamp) {
     animId = requestAnimationFrame(render);
 
-    t += 0.008 * params.speed;
+    /* ── Delta Time ── */
+    const delta = Math.min((timestamp - lastTs) / 16.67, 3.0); // cap at 3× slow
+    lastTs = timestamp;
 
+    /* ── FPS Counter ── */
+    fpsAccum  += delta;
+    frameCount++;
+    if (frameCount % 30 === 0) {
+      // Update FPS every 30 frames
+      currentFPS = Math.round(30.0 / (fpsAccum * 0.01667));
+      fpsAccum   = 0;
+    }
+
+    /* ── Advance Global Time ── */
+    t += 0.008 * params.speed * delta;
+
+    /* ── Sync Particle Pool to Density ── */
+    if (frameCount % 60 === 0) syncPool();
+
+    /* ── Draw Background Fade ── */
+    drawBackground();
+
+    /* ── Get Active Formula ── */
     const formula = FORMULAS[params.presetIndex];
 
-    // Trail fade (not full clear — creates motion blur)
-    ctx.fillStyle = 'rgba(0, 0, 8, 0.18)';
-    ctx.fillRect(0, 0, W, H);
+    /* ── Update & Draw Particles ── */
+    const len = particles.length;
+    for (let i = 0; i < len; i++) {
+      particles[i].update(formula, params.speed, params.scale, t);
+      particles[i].draw(ctx);
+    }
 
-    // Update & draw all particles
-    let outSum = 0, cwSum = 0;
-    particles.forEach(p => {
-      p.update(formula, params.speed, params.scale, t);
-      p.draw(ctx, t);
+    /* ── Compute Sync Metrics ── */
+    computeMetrics();
+  }
 
-      // Measure outward flow
-      const dx = p.x - cx, dy = p.y - cy;
-      outSum += p.vx * dx + p.vy * dy;  // dot(v, radial)
-      cwSum  += p.vx * dy - p.vy * dx;  // cross (cw positive)
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 9 — INIT & RESIZE
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  function init(canvasEl) {
+    canvas = canvasEl;
+    ctx    = canvas.getContext('2d', {
+      alpha:             true,
+      willReadFrequently: false
     });
 
-    // Compute metrics for SyncController
-    const n = particles.length;
-    metrics.outwardFlow = outSum / (n * W * 0.01);
-    metrics.clockwise   = cwSum > 0;
-    metrics.frequency   = Math.abs(t % (2*Math.PI) - Math.PI) / Math.PI; // 0→1 pulse
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Initial pool
+    syncPool();
   }
 
-  /* ══════════════════════════════════════════════
+  function resize() {
+    W  = canvas.width  = window.innerWidth;
+    H  = canvas.height = window.innerHeight;
+    cx = W * 0.5;
+    cy = H * 0.5;
+
+    // Reset all trails on resize to avoid streaks
+    particles.forEach(p => {
+      p.trailCount = 0;
+      p.reset(true);
+    });
+  }
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 10 — PRESET NAME DATA
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  const PRESET_NAMES = [
+    'Fiber Optics',     'Digital Silk',       'Wave Turbulence',
+    'Dynamic Vortex',   'Neural Grid',         'Data Blocks',
+    'Sand Waves',       'Galactic River',      'Radial Drift',
+    'Geometric Repeat', 'Magnetic Field',      'Ordered Chaos',
+    'Fractal Spiral',   'Electric Storm',      'DNA Helix',
+    'Coral Growth',     'Quantum Field',       'Topographic Map',
+    'Mirror Flow',      'Smoke Simulation',    'Crystal Lattice',
+    'Nebula',           'Woven Fabric',        'Black Hole',
+    'Aurora Borealis',  'Voronoi Flow',        'Interference Rings',
+    'Tornado',          'Neural Network',      'Galaxy Arm',
+    'Liquid Marble',    'Solar Flare',         'Frozen Veins',
+    'Velvet Fold',      'Band Current',        'Sonic Ripples',
+    'Plasma Mesh',      'Marble Vein',         'Hyper Tunnel',
+    'Biofilm Drift',    'Grid Stream',         'Cloud Chamber',
+    'Ink Diffusion',    'Luminous Web',        'Harmonic Tiles',
+    'Spiral Garden',    'Mercury Flow',        'Prism Wave',
+    'Orbit Net',        'Ember Drift',         'Glass Refraction',
+    'Ocean Current',    'Silk Bloom',          'Flux Rings',
+    'Industrial Flow',  'Star Nursery',        'Wave Lattice',
+    'Moiré Pulse',      'Orbital Current',     'Phantom Field'
+  ];
+
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      PUBLIC API
-  ══════════════════════════════════════════════ */
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+  /** Start the animation loop */
   function start() {
-    if (!animId) render(0);
+    if (!animId) {
+      lastTs = performance.now();
+      render(lastTs);
+    }
   }
 
+  /** Stop the animation loop */
   function stop() {
-    if (animId) { cancelAnimationFrame(animId); animId = null; }
+    if (animId) {
+      cancelAnimationFrame(animId);
+      animId = null;
+    }
   }
 
+  /** Set active formula by index [0..59] */
   function setPreset(index) {
-    params.presetIndex = Math.max(0, Math.min(59, index));
+    params.presetIndex = Math.max(0, Math.min(59, index | 0));
   }
 
+  /**
+   * Set multiple parameters at once
+   * @param {Object} p  partial params object
+   */
   function setParams(p) {
-    Object.assign(params, p);
+    if (p.speed   !== undefined) params.speed   = p.speed;
+    if (p.scale   !== undefined) params.scale   = p.scale;
+    if (p.chaos   !== undefined) params.chaos   = p.chaos;
+    if (p.density !== undefined) {
+      params.density = Math.max(100, Math.min(8000, p.density | 0));
+      syncPool();
+    }
   }
 
-  function getMetrics() { return metrics; }
+  /** Set colour palette [0..4] */
+  function setPalette(index) {
+    paletteIndex = Math.max(0, Math.min(PALETTES.length - 1, index | 0));
+  }
 
+  /** Get live sync metrics for SyncController */
+  function getMetrics() {
+    return metrics;
+  }
+
+  /** Get the English preset name array */
   function getPresetNames() {
-    return [
-      'Fiber Optics','Digital Silk','Wave Turbulence','Dynamic Vortex','Neural Grid',
-      'Data Blocks','Sand Waves','Galactic River','Radial Drift','Geometric Repeat',
-      'Magnetic Field','Ordered Chaos','Fractal Spiral','Electric Storm','DNA Helix',
-      'Coral Growth','Quantum Field','Topographic Map','Mirror Flow','Smoke Simulation',
-      'Crystal Lattice','Nebula','Woven Fabric','Black Hole','Aurora Borealis',
-      'Voronoi Flow','Interference Rings','Tornado','Neural Network','Galaxy Arm',
-      'Liquid Marble','Solar Flare','Frozen Veins','Velvet Fold','Band Current',
-      'Sonic Ripples','Plasma Mesh','Marble Vein','Hyper Tunnel','Biofilm Drift',
-      'Grid Stream','Cloud Chamber','Ink Diffusion','Luminous Web','Harmonic Tiles',
-      'Spiral Garden','Mercury Flow','Prism Wave','Orbit Net','Ember Drift',
-      'Glass Refraction','Ocean Current','Silk Bloom','Flux Rings','Industrial Flow',
-      'Star Nursery','Wave Lattice','Moiré Pulse','Orbital Current','Phantom Field'
-    ];
+    return PRESET_NAMES;
   }
 
-  return { init, start, stop, setPreset, setParams, getMetrics, getPresetNames };
+  /** Get current particle count */
+  function getParticleCount() {
+    return particles.length;
+  }
 
-})();
+  /** Force-reset all particles (e.g. after preset change) */
+  function resetParticles() {
+    particles.forEach(p => p.reset(true));
+  }
+
+  /* ── Expose public surface ── */
+  return {
+    init,
+    start,
+    stop,
+    setPreset,
+    setParams,
+    setPalette,
+    getMetrics,
+    getPresetNames,
+    getParticleCount,
+    resetParticles
+  };
+
+})(); // end Engine2D
