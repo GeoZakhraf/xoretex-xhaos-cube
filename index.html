@@ -18,6 +18,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#c0fce
 ::-webkit-scrollbar{width:6px;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--accent);border-radius:3px;}
+
+/* CANVAS STACK */
 #canvasWrap{position:absolute;inset:0;z-index:0;}
 #canvasWrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
 #bgCan{z-index:0;}
@@ -96,48 +98,31 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#c0fce
 .pCheck input{accent-color:var(--accent);}
 .pVal{font-size:10px;color:var(--accent);min-width:32px;text-align:right;}
 .pRow{display:flex;align-items:center;gap:6px;margin:3px 0;}
-.pColor{width:28px;height:22px;border:1px solid var(--panelBorder);border-radius:4px;cursor:pointer;
-  background:transparent;padding:0;}
+.pColor{width:28px;height:22px;border:1px solid var(--panelBorder);border-radius:4px;cursor:pointer;background:transparent;padding:0;}
 .indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;}
 .indicator.valid{background:#0f0;box-shadow:0 0 6px #0f0;}
 .indicator.invalid{background:var(--danger);box-shadow:0 0 6px var(--danger);}
-
-.layerCard{border:1px solid var(--panelBorder);border-radius:var(--rad);margin:6px 0;padding:8px;
-  background:rgba(0,0,0,0.2);transition:box-shadow .25s;}
+.layerCard{border:1px solid var(--panelBorder);border-radius:var(--rad);margin:6px 0;padding:8px;background:rgba(0,0,0,0.2);transition:box-shadow .25s;}
 .layerCard.focused{box-shadow:0 0 14px var(--accent);}
-.layerTitle{font-family:'Orbitron',sans-serif;font-size:10px;cursor:pointer;letter-spacing:1px;
-  padding:2px 0;user-select:none;}
-
+.layerTitle{font-family:'Orbitron',sans-serif;font-size:10px;cursor:pointer;letter-spacing:1px;padding:2px 0;user-select:none;}
 .snippetGrid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
 .snippetBtn{font-size:10px;padding:4px 6px;text-align:center;}
 
-#audioBarWrap{height:40px;display:flex;align-items:flex-end;gap:1px;margin:6px 0;
-  background:rgba(0,0,0,0.3);border-radius:4px;padding:2px;overflow:hidden;}
+#audioBarWrap{height:40px;display:flex;align-items:flex-end;gap:1px;margin:6px 0;background:rgba(0,0,0,0.3);border-radius:4px;padding:2px;overflow:hidden;}
 .aBar{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px;transition:height .06s;}
-
-.ffItem{display:flex;align-items:center;gap:4px;font-size:10px;margin:3px 0;
-  padding:4px;border:1px solid rgba(0,255,200,0.08);border-radius:4px;}
+.ffItem{display:flex;align-items:center;gap:4px;font-size:10px;margin:3px 0;padding:4px;border:1px solid rgba(0,255,200,0.08);border-radius:4px;}
 .ffItem .ffDot{width:10px;height:10px;border-radius:50%;}
 
-#gameHUD{position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:95;
-  display:none;background:var(--panelBg);backdrop-filter:blur(10px);
-  border:1px solid var(--panelBorder);border-radius:var(--rad);padding:6px 16px;
-  font-family:'Orbitron',sans-serif;font-size:12px;text-align:center;min-width:240px;}
+#gameHUD{position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:95;display:none;background:var(--panelBg);backdrop-filter:blur(10px);border:1px solid var(--panelBorder);border-radius:var(--rad);padding:6px 16px;font-family:'Orbitron',sans-serif;font-size:12px;text-align:center;min-width:240px;}
 #gameHUDTitle{font-size:13px;margin-bottom:4px;}
 #gameHUDInfo{font-size:11px;color:var(--accent);}
 #gameHUDBar{height:6px;background:rgba(0,0,0,0.4);border-radius:3px;margin:4px 0;overflow:hidden;}
-#gameHUDBarFill{height:100%;width:50%;background:linear-gradient(90deg,var(--accent),var(--accent2));
-  border-radius:3px;transition:width .3s;}
+#gameHUDBarFill{height:100%;width:50%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width .3s;}
 
-#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);z-index:200;
-  background:var(--panelBg);backdrop-filter:blur(12px);border:1px solid var(--panelBorder);
-  border-radius:var(--rad);padding:8px 20px;font-size:12px;color:var(--accent);
-  box-shadow:var(--shadow);opacity:0;transition:all .35s;pointer-events:none;white-space:nowrap;}
+#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);z-index:200;background:var(--panelBg);backdrop-filter:blur(12px);border:1px solid var(--panelBorder);border-radius:var(--rad);padding:8px 20px;font-size:12px;color:var(--accent);box-shadow:var(--shadow);opacity:0;transition:all .35s;pointer-events:none;white-space:nowrap;}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-#recBar{position:fixed;bottom:0;left:0;right:0;height:28px;z-index:110;display:none;
-  background:rgba(255,0,80,0.12);border-top:1px solid var(--danger);align-items:center;
-  justify-content:center;gap:10px;font-size:11px;color:var(--danger);}
+#recBar{position:fixed;bottom:0;left:0;right:0;height:28px;z-index:110;display:none;background:rgba(255,0,80,0.12);border-top:1px solid var(--danger);align-items:center;justify-content:center;gap:10px;font-size:11px;color:var(--danger);}
 #recBar.show{display:flex;}
 #recDot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:blink 1s infinite;}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
@@ -145,24 +130,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#c0fce
 #recProgress{width:160px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;}
 #recProgressFill{height:100%;background:var(--danger);width:0%;transition:width .5s;}
 
-.modalOverlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.7);
-  display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.modalOverlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
 .modalOverlay.show{display:flex;}
-.modalBox{background:rgba(10,14,22,0.96);border:1px solid var(--panelBorder);border-radius:12px;
-  max-width:600px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;position:relative;
-  box-shadow:0 0 40px rgba(0,255,200,0.08);}
-.modalClose{position:absolute;top:10px;right:14px;font-size:20px;color:var(--textDim);
-  cursor:pointer;background:none;border:none;transition:color .2s;}
+.modalBox{background:rgba(10,14,22,0.96);border:1px solid var(--panelBorder);border-radius:12px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;position:relative;box-shadow:0 0 40px rgba(0,255,200,0.08);}
+.modalClose{position:absolute;top:10px;right:14px;font-size:20px;color:var(--textDim);cursor:pointer;background:none;border:none;transition:color .2s;}
 .modalClose:hover{color:var(--accent);}
-.modalTitle{font-family:'Orbitron',sans-serif;font-size:16px;margin-bottom:12px;
-  background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;}
+.modalTitle{font-family:'Orbitron',sans-serif;font-size:16px;margin-bottom:12px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .modalBody{font-size:12px;line-height:1.7;}
 .modalBody h3{color:var(--accent);margin:10px 0 4px;font-size:13px;}
-.modalBody kbd{background:rgba(0,255,200,0.1);padding:1px 6px;border-radius:3px;
-  border:1px solid var(--panelBorder);font-size:11px;}
-.modalBody pre{background:rgba(0,0,0,0.5);padding:10px;border-radius:6px;overflow-x:auto;
-  font-size:11px;margin:6px 0;white-space:pre-wrap;word-break:break-all;}
+.modalBody kbd{background:rgba(0,255,200,0.1);padding:1px 6px;border-radius:3px;border:1px solid var(--panelBorder);font-size:11px;}
+.modalBody pre{background:rgba(0,0,0,0.5);padding:10px;border-radius:6px;overflow-x:auto;font-size:11px;margin:6px 0;white-space:pre-wrap;word-break:break-all;}
 .modalBody .step{padding:8px 0;border-bottom:1px solid rgba(0,255,200,0.06);}
 .modalBody .step:last-child{border:none;}
 .helpDontShow{margin-top:12px;display:flex;align-items:center;gap:6px;font-size:11px;}
@@ -179,22 +156,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#c0fce
 }
 html[dir="rtl"] #sidePanel{right:auto;left:0;border-left:none;border-right:1px solid var(--panelBorder);}
 html[dir="rtl"] #sidePanel.collapsed{transform:translateX(-100%);}
-html[dir="rtl"] #panelToggle{right:auto;left:320px;border-radius:0 var(--rad) var(--rad) 0;
-  border-left:none;border-right:1px solid var(--panelBorder);}
+html[dir="rtl"] #panelToggle{right:auto;left:320px;border-radius:0 var(--rad) var(--rad) 0;border-left:none;border-right:1px solid var(--panelBorder);}
 html[dir="rtl"] #panelToggle.collapsed{left:0;}
-@media(max-width:720px){
-  html[dir="rtl"] #panelToggle{left:0;right:auto;}
-}
+@media(max-width:720px){html[dir="rtl"] #panelToggle{left:0;right:auto;}}
 
-#fpsDisplay{position:fixed;bottom:6px;left:6px;z-index:80;font-size:10px;color:var(--textDim);
-  font-family:'Share Tech Mono',monospace;pointer-events:none;}
-#errorOverlay{position:fixed;top:50px;left:10px;z-index:500;max-width:360px;
-  background:rgba(40,0,0,0.9);border:1px solid var(--danger);border-radius:var(--rad);
-  padding:10px 14px;font-size:11px;color:#faa;display:none;word-break:break-word;}
+#fpsDisplay{position:fixed;bottom:6px;left:6px;z-index:80;font-size:10px;color:var(--textDim);font-family:'Share Tech Mono',monospace;pointer-events:none;}
+#errorOverlay{position:fixed;top:50px;left:10px;z-index:500;max-width:360px;background:rgba(40,0,0,0.9);border:1px solid var(--danger);border-radius:var(--rad);padding:10px 14px;font-size:11px;color:#faa;display:none;word-break:break-word;}
 </style>
 </head>
 <body>
 
+<!-- CANVAS STACK -->
 <div id="canvasWrap">
   <canvas id="bgCan"></canvas>
   <canvas id="flowCan"></canvas>
@@ -206,10 +178,9 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
   <div id="touchRing"></div>
 </div>
 
+<!-- TOP BAR -->
 <div id="topBar">
-  <div class="left">
-    <span class="title">XORETEX XHAOS CUBE</span>
-  </div>
+  <div class="left"><span class="title">XORETEX XHAOS CUBE</span></div>
   <div class="right">
     <button class="topBtn" id="btnLang" title="Language">EN</button>
     <button class="topBtn" id="btnHelp" title="Help">?</button>
@@ -220,23 +191,26 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
   </div>
 </div>
 
+<!-- MODE TABS -->
 <div id="modeTabs">
   <button class="modeTab active" data-mode="both" id="tabBoth">BOTH</button>
   <button class="modeTab" data-mode="2d" id="tab2D">2D Flow</button>
   <button class="modeTab" data-mode="3d" id="tab3D">3D Cube</button>
 </div>
 
+<!-- PANEL TOGGLE -->
 <button id="panelToggle">◂</button>
 
+<!-- SIDE PANEL -->
 <div id="sidePanel">
 
+  <!-- PRESETS -->
   <div class="pSec" id="secPresets">
     <div class="pSecHead" data-sec="secPresetsBody"><span data-i18n="presets">Presets</span><span class="arrow">▸</span></div>
-    <div class="pSecBody" id="secPresetsBody">
-      <div class="pBtnRow" id="presetBtns"></div>
-    </div>
+    <div class="pSecBody" id="secPresetsBody"><div class="pBtnRow" id="presetBtns"></div></div>
   </div>
 
+  <!-- LIVE INJECTION -->
   <div class="pSec" id="secInject">
     <div class="pSecHead open" data-sec="secInjectBody"><span data-i18n="liveInjection">Live Injection</span><span class="arrow">▸</span></div>
     <div class="pSecBody open" id="secInjectBody">
@@ -252,6 +226,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- LAYERS -->
   <div class="pSec" id="secLayers">
     <div class="pSecHead" data-sec="secLayersBody"><span data-i18n="layers">Layers</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secLayersBody">
@@ -260,6 +235,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- AUDIO -->
   <div class="pSec" id="secAudio">
     <div class="pSecHead" data-sec="secAudioBody"><span data-i18n="audio">Audio</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secAudioBody">
@@ -283,15 +259,14 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- FORCE FIELDS -->
   <div class="pSec" id="secForce">
     <div class="pSecHead" data-sec="secForceBody"><span data-i18n="forceFields">Force Fields</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secForceBody">
       <div class="pRow">
         <select class="pSelect" id="ffTypeSelect" style="width:auto;flex:1;">
-          <option value="attract">Attract</option>
-          <option value="repel">Repel</option>
-          <option value="vortex">Vortex</option>
-          <option value="gravity">Gravity</option>
+          <option value="attract">Attract</option><option value="repel">Repel</option>
+          <option value="vortex">Vortex</option><option value="gravity">Gravity</option>
         </select>
         <button class="pBtn" id="btnAddFF" data-i18n="addField">+ Add</button>
       </div>
@@ -302,6 +277,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- EFFECTS -->
   <div class="pSec" id="secEffects">
     <div class="pSecHead" data-sec="secEffectsBody"><span data-i18n="effects">Effects</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secEffectsBody">
@@ -326,6 +302,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- CONTROLS -->
   <div class="pSec" id="secControls">
     <div class="pSecHead" data-sec="secControlsBody"><span data-i18n="controls">Controls</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secControlsBody">
@@ -342,6 +319,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- INTERACTION -->
   <div class="pSec" id="secInteraction">
     <div class="pSecHead" data-sec="secInteractionBody"><span data-i18n="interaction">Interaction</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secInteractionBody">
@@ -353,6 +331,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- GAME MODES -->
   <div class="pSec" id="secGame">
     <div class="pSecHead" data-sec="secGameBody"><span data-i18n="gameModes">Game Modes</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secGameBody">
@@ -366,6 +345,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- CUBE CONTROLS -->
   <div class="pSec" id="secCube">
     <div class="pSecHead" data-sec="secCubeBody"><span data-i18n="cubeControls">Cube Controls</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secCubeBody">
@@ -394,6 +374,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- ACTIONS -->
   <div class="pSec" id="secActions">
     <div class="pSecHead" data-sec="secActionsBody"><span data-i18n="actions">Actions</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secActionsBody">
@@ -407,6 +388,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
+  <!-- SHORTCUTS -->
   <div class="pSec" id="secShortcuts">
     <div class="pSecHead" data-sec="secShortcutsBody"><span data-i18n="shortcuts">Shortcuts</span><span class="arrow">▸</span></div>
     <div class="pSecBody" id="secShortcutsBody">
@@ -424,23 +406,22 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
     </div>
   </div>
 
-</div>
+</div><!-- end sidePanel -->
 
-<div id="gameHUD">
-  <div id="gameHUDTitle"></div>
-  <div id="gameHUDInfo"></div>
-  <div id="gameHUDBar"><div id="gameHUDBarFill"></div></div>
-</div>
+<!-- GAME HUD -->
+<div id="gameHUD"><div id="gameHUDTitle"></div><div id="gameHUDInfo"></div><div id="gameHUDBar"><div id="gameHUDBarFill"></div></div></div>
 
+<!-- TOAST -->
 <div id="toast"></div>
 
+<!-- RECORDING BAR -->
 <div id="recBar">
-  <span id="recDot"></span>
-  <span id="recTime">00:00</span>
+  <span id="recDot"></span><span id="recTime">00:00</span>
   <div id="recProgress"><div id="recProgressFill"></div></div>
   <button class="topBtn danger" id="btnRecStop" data-i18n="stopRec">Stop</button>
 </div>
 
+<!-- HELP MODAL -->
 <div class="modalOverlay" id="helpModal">
   <div class="modalBox">
     <button class="modalClose" id="helpClose">&times;</button>
@@ -453,6 +434,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
   </div>
 </div>
 
+<!-- SVG MODAL -->
 <div class="modalOverlay" id="svgModal">
   <div class="modalBox">
     <button class="modalClose" id="svgClose">&times;</button>
@@ -465,6 +447,7 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
   </div>
 </div>
 
+<!-- GLSL MODAL -->
 <div class="modalOverlay" id="glslModal">
   <div class="modalBox">
     <button class="modalClose" id="glslClose">&times;</button>
@@ -476,53 +459,61 @@ html[dir="rtl"] #panelToggle.collapsed{left:0;}
   </div>
 </div>
 
+<!-- FPS + ERROR -->
 <div id="fpsDisplay">FPS: --</div>
 <div id="errorOverlay"></div>
 
-<!-- Three.js: try local first, fallback to CDN -->
+<!-- ===== SCRIPTS — CORRECT LOAD ORDER ===== -->
+
+<!-- Step 1: Three.js — local first, CDN fallback -->
 <script>
-window._threeLoaded = false;
-window._onThreeReady = function() { window._threeLoaded = true; };
-</script>
-<script src="three.min.js" onload="_onThreeReady()" onerror="
-  var s=document.createElement('script');
-  s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-  s.onload=function(){window._threeLoaded=true;};
-  s.onerror=function(){console.warn('Three.js failed to load');};
-  document.head.appendChild(s);
-"></script>
-<script src="engine2d.js"></script>
-<script>
-// Wait for Three.js then load cube
-function _loadCube(){
-  if(typeof THREE!=='undefined'){
-    var s=document.createElement('script');
-    s.src='cube3d.js';
-    document.body.appendChild(s);
-  } else {
-    setTimeout(_loadCube,200);
-  }
+window._threeLoadAttempt = 0;
+function onThreeLoaded() {
+  console.log('[html] Three.js ready');
 }
-// small delay to let engine2d init first
-setTimeout(function(){
-  if(typeof THREE!=='undefined'){
-    var s=document.createElement('script');
-    s.src='cube3d.js';
-    document.body.appendChild(s);
-  } else {
-    var attempts=0;
-    var iv=setInterval(function(){
-      attempts++;
-      if(typeof THREE!=='undefined'){
-        clearInterval(iv);
-        var s=document.createElement('script');
-        s.src='cube3d.js';
-        document.body.appendChild(s);
-      }
-      if(attempts>30) clearInterval(iv);
-    },300);
-  }
-},100);
 </script>
+<script src="three.min.js"
+  onload="onThreeLoaded()"
+  onerror="
+    console.log('[html] Local three.min.js not found, loading from CDN...');
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s.onload=function(){console.log('[html] Three.js loaded from CDN');};
+    s.onerror=function(){console.error('[html] Three.js CDN also failed');};
+    document.head.appendChild(s);
+  "></script>
+
+<!-- Step 2: engine2d.js — runs immediately, doesn't need Three.js -->
+<script src="engine2d.js"></script>
+
+<!-- Step 3: cube3d.js — loaded after delay so Three.js is ready -->
+<script>
+(function loadCubeWhenReady() {
+  // Give Three.js time to load (local or CDN)
+  var maxAttempts = 60;
+  var attempt = 0;
+  var timer = setInterval(function() {
+    attempt++;
+    if (typeof THREE !== 'undefined') {
+      clearInterval(timer);
+      console.log('[html] Loading cube3d.js (Three.js confirmed at attempt ' + attempt + ')');
+      var s = document.createElement('script');
+      s.src = 'cube3d.js';
+      s.onerror = function() {
+        console.error('[html] cube3d.js failed to load');
+        var err = document.getElementById('errorOverlay');
+        if (err) { err.style.display = 'block'; err.innerHTML += '<div><b>⚠</b> cube3d.js not found</div>'; }
+      };
+      document.body.appendChild(s);
+    } else if (attempt >= maxAttempts) {
+      clearInterval(timer);
+      console.warn('[html] Three.js never loaded after ' + maxAttempts + ' attempts — 3D disabled');
+      window.setCubeVisible = function() {};
+      window.nextCubePattern = function() {};
+    }
+  }, 150);
+})();
+</script>
+
 </body>
 </html>
