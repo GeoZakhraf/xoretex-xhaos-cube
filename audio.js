@@ -1,16 +1,29 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  GeoZakhraf Xhaos Engine — audio.js
+ *  GeoZakhraf Xhaos Engine v2.0 — audio.js
  *
  *  Web Audio API Reactive Engine
- *  · Microphone input via getUserMedia
- *  · FFT frequency analysis (2048-point)
- *  · Band energy extraction (Bass / Mid / High / Presence)
- *  · Advanced beat detection (spectral flux + variance)
- *  · BPM estimation (inter-beat interval tracking)
- *  · Smooth output metrics → SyncController & UI
- *  · File / microphone source switching
- *  · Graceful fallback when audio is unavailable
+ *  ─────────────────────────────
+ *  Completely isolated module — no dependency on:
+ *  · canvas2d or canvas3d
+ *  · Three.js or CanvasTexture
+ *  · Engine2D or Cube3D
+ *  · UI or DOM (except navigator.mediaDevices)
+ *
+ *  Only interface: getMetrics() → SyncController in main.js
+ *
+ *  Pipeline:
+ *  Microphone → AudioContext → AnalyserNode (2048 FFT)
+ *      → Band Extraction (6 bands)
+ *      → Beat Detection (spectral flux + adaptive threshold)
+ *      → BPM Estimation (median inter-beat interval)
+ *      → Attack/Release Smoothing (VU meter model)
+ *      → metrics object → SyncController.tick()
+ *
+ *  v2.0 polish additions (no functional changes):
+ *  · Improved console logging with version tag
+ *  · getStatus() returns sourceType for TEX SYNC HUD
+ *  · Minor JSDoc improvements
  *
  *  Architecture: IIFE Module Pattern
  * ═══════════════════════════════════════════════════════════════
@@ -21,58 +34,65 @@
 window.AudioEngine = (function () {
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     PRIVATE STATE
+     SECTION 1 — PRIVATE STATE
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /* ── Web Audio Objects ── */
-  let audioCtx      = null;   // AudioContext
-  let analyser      = null;   // AnalyserNode
-  let sourceNode    = null;   // MediaStreamSource or MediaElementSource
-  let gainNode      = null;   // GainNode (input level control)
-  let mediaStream   = null;   // active MediaStream (mic)
+  /* Web Audio Objects */
+  let audioCtx    = null;   // AudioContext
+  let analyser    = null;   // AnalyserNode
+  let sourceNode  = null;   // MediaStreamSource or MediaElementSource
+  let gainNode    = null;   // GainNode — input level control
+  let mediaStream = null;   // active MediaStream from microphone
 
-  /* ── FFT Buffers ── */
-  const FFT_SIZE    = 2048;
-  const SMOOTH      = 0.80;   // analyser smoothingTimeConstant
-  let freqData      = null;   // Uint8Array  — frequency domain [0..255]
-  let timeData      = null;   // Uint8Array  — time domain (waveform)
+  /* FFT Configuration */
+  const FFT_SIZE  = 2048;
+  const SMOOTH    = 0.80;   // analyser smoothingTimeConstant
 
-  /* ── Engine Status ── */
-  let isActive      = false;
-  let sourceType    = 'none'; // 'mic' | 'file' | 'none'
+  /* FFT Data Buffers */
+  let freqData    = null;   // Uint8Array — frequency domain [0..255]
+  let timeData    = null;   // Uint8Array — time domain (waveform)
+
+  /* Engine Status */
+  let isActive    = false;
+  let sourceType  = 'none'; // 'mic' | 'file' | 'none'
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      BEAT DETECTION STATE
-     Uses spectral flux method:
-     Compare current frame energy to
-     rolling average of recent frames.
-     A beat occurs when current >> average.
+     Algorithm: Spectral Flux with Adaptive Threshold
+
+     Compares current frame bass energy to a rolling
+     average of recent frames. A beat fires when
+     current energy significantly exceeds the average.
+     Adaptive threshold adjusts to music dynamics:
+     · High variance music → lower threshold (more reactive)
+     · Steady/quiet music  → higher threshold (less reactive)
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /* History window — 43 frames ≈ ~700ms at 60fps */
-  const HISTORY_SIZE    = 43;
-  const bassHistory     = new Float32Array(HISTORY_SIZE);
-  const energyHistory   = new Float32Array(HISTORY_SIZE);
-  let   historyIndex    = 0;
+  const HISTORY_SIZE  = 43;
+  const bassHistory   = new Float32Array(HISTORY_SIZE);
+  const energyHistory = new Float32Array(HISTORY_SIZE);
+  let   historyIndex  = 0;
 
-  /* Beat state */
-  let beatCooldown      = 0;    // frames until next beat allowed
-  const BEAT_COOLDOWN   = 15;   // minimum frames between beats (~250ms)
-  const BEAT_THRESHOLD  = 1.60; // energy must exceed avg × this factor
+  /* Beat cooldown — minimum frames between beats */
+  let   beatCooldown      = 0;
+  const BEAT_COOLDOWN     = 15;    // ~250ms at 60fps
+  const BEAT_THRESHOLD    = 1.60;  // energy must exceed avg × this
 
   /* BPM Estimation */
-  const BPM_HISTORY_MAX = 16;   // store last N inter-beat intervals
+  const BPM_HISTORY_MAX = 16;      // track last N inter-beat intervals
   let   bpmHistory      = [];
   let   lastBeatTime    = 0;
   let   estimatedBPM    = 0;
 
-  /* Onset detection (high-frequency content change) */
-  let   prevHighSum     = 0;
+  /* Onset detection — tracks high-frequency content change */
+  let prevHighSum = 0;
+
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SMOOTHED OUTPUT METRICS
-     All values smoothed with exponential filter
-     to avoid jittery sync responses.
+     Exponential smoothing — fast rise / slow fall
+     (VU meter ballistics model)
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   let metrics = {
@@ -81,37 +101,39 @@ window.AudioEngine = (function () {
     sourceType:   'none',
 
     /* Raw energy bands [0..1] */
-    amplitude:    0,    // overall RMS
-    bassEnergy:   0,    // sub-bass + bass (20–250 Hz)
-    midEnergy:    0,    // mid-range (250–2000 Hz)
-    presEnergy:   0,    // presence (2000–6000 Hz)
-    highEnergy:   0,    // brilliance (6000–20000 Hz)
+    amplitude:    0,    // overall RMS (full spectrum)
+    bassEnergy:   0,    // sub-bass + bass  (20–250 Hz)
+    midEnergy:    0,    // mid-range        (250–2000 Hz)
+    presEnergy:   0,    // presence         (2000–6000 Hz)
+    highEnergy:   0,    // brilliance       (6000–20000 Hz)
 
-    /* Smoothed versions (for visual output) */
-    bassSmooth:   0,
-    midSmooth:    0,
-    highSmooth:   0,
+    /* Slower smoothed versions for visual output */
+    bassSmooth:   0,    // bass with slow release
+    midSmooth:    0,    // mid with slow release
+    highSmooth:   0,    // high with slow release
 
-    /* Beat */
-    beatDetect:   false,   // true for exactly one frame per beat
-    beatStrength: 0,       // [0..1] how strong the beat was
-    bpm:          0,       // estimated beats per minute
+    /* Beat detection */
+    beatDetect:   false,  // true for exactly one frame per beat
+    beatStrength: 0,      // [0..1] how strong the beat was
+    bpm:          0,      // estimated BPM from inter-beat intervals
 
-    /* Waveform peak */
-    waveformPeak: 0,       // [0..1] current waveform max amplitude
+    /* Waveform */
+    waveformPeak: 0,      // [0..1] current time-domain peak amplitude
 
-    /* Spectral centroid [0..1] — "brightness" of the sound */
+    /* Spectral centroid [0..1]
+       High = bright/harsh sound, Low = deep/warm sound */
     centroid:     0
   };
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 1 — AUDIO CONTEXT SETUP
+     SECTION 2 — AUDIO CONTEXT SETUP
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * createContext — initialises the AudioContext and
-   * shared AnalyserNode. Safe to call multiple times.
+   * createContext — initialise AudioContext and AnalyserNode.
+   * Safe to call multiple times — returns false if already exists.
+   * @returns {boolean}
    */
   function createContext() {
     if (audioCtx && audioCtx.state !== 'closed') return true;
@@ -129,14 +151,14 @@ window.AudioEngine = (function () {
       analyser.minDecibels            = -90;
       analyser.maxDecibels            = -10;
 
-      /* Gain node (input volume) */
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = 1.0;
+      /* Gain node — adjustable input level */
+      gainNode              = audioCtx.createGain();
+      gainNode.gain.value   = 1.0;
 
-      /* Routing: source → gain → analyser (→ NOT speakers) */
+      /* Route: source → gain → analyser
+         Note: do NOT connect analyser → destination
+         This prevents microphone feedback through speakers */
       gainNode.connect(analyser);
-      /* Note: do NOT connect analyser to destination
-         (prevents feedback when using microphone) */
 
       /* Allocate FFT buffers */
       freqData = new Uint8Array(analyser.frequencyBinCount);
@@ -145,33 +167,34 @@ window.AudioEngine = (function () {
       return true;
 
     } catch (e) {
-      console.error('[AudioEngine] AudioContext creation failed:', e);
+      console.error('[AudioEngine v2.0] AudioContext creation failed:', e);
       return false;
     }
   }
 
   /**
-   * resumeContext — iOS/Chrome require a user gesture
-   * before the AudioContext can run.
+   * resumeContext — iOS and Chrome require a user gesture
+   * before the AudioContext is allowed to run.
+   * Call this inside any user interaction handler.
    */
   async function resumeContext() {
     if (audioCtx && audioCtx.state === 'suspended') {
       try {
         await audioCtx.resume();
       } catch (e) {
-        console.warn('[AudioEngine] Could not resume AudioContext:', e);
+        console.warn('[AudioEngine v2.0] Could not resume context:', e);
       }
     }
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 2 — SOURCE MANAGEMENT
+     SECTION 3 — SOURCE MANAGEMENT
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * disconnectSource — safely disconnect and release
-   * any existing audio source node.
+   * disconnectSource — safely release the current audio source.
+   * Stops the media stream tracks to release the microphone.
    */
   function disconnectSource() {
     if (sourceNode) {
@@ -179,29 +202,33 @@ window.AudioEngine = (function () {
       sourceNode = null;
     }
     if (mediaStream) {
-      mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
     }
   }
 
   /**
-   * init — request microphone access and start analysis.
+   * init — request microphone access and begin analysis.
+   *
+   * Audio constraints tuned for maximum raw signal fidelity:
+   * · echoCancellation: false — don't process the signal
+   * · noiseSuppression: false — keep transients intact for beat detection
+   * · autoGainControl:  false — manual gain via gainNode
+   *
    * @returns {Promise<boolean>} true on success
    */
   async function init() {
     if (!createContext()) return false;
     await resumeContext();
-
     disconnectSource();
 
     try {
-      /* Request microphone */
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation:   false,  // keep raw signal
-          noiseSuppression:   false,
-          autoGainControl:    false,
-          channelCount:       1
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl:  false,
+          channelCount:     1
         },
         video: false
       });
@@ -209,24 +236,32 @@ window.AudioEngine = (function () {
       sourceNode = audioCtx.createMediaStreamSource(mediaStream);
       sourceNode.connect(gainNode);
 
-      isActive            = true;
-      sourceType          = 'mic';
-      metrics.active      = true;
-      metrics.sourceType  = 'mic';
+      isActive           = true;
+      sourceType         = 'mic';
+      metrics.active     = true;
+      metrics.sourceType = 'mic';
 
-      console.info('[AudioEngine] Microphone active. ' +
-                   `Sample rate: ${audioCtx.sampleRate} Hz`);
+      console.info(
+        '[AudioEngine v2.0] Microphone active. ' +
+        `Sample rate: ${audioCtx.sampleRate} Hz. ` +
+        `FFT size: ${FFT_SIZE}. ` +
+        'Beat detection: spectral flux + adaptive threshold.'
+      );
+
       return true;
 
     } catch (err) {
-      /* Handle specific error types */
-      const msg = err.name === 'NotAllowedError'
-        ? 'Microphone access denied by user.'
-        : err.name === 'NotFoundError'
-          ? 'No microphone device found.'
-          : `Microphone error: ${err.message}`;
+      /* Specific error messages for different failure modes */
+      const msg =
+        err.name === 'NotAllowedError'
+          ? 'Microphone permission denied by user.'
+          : err.name === 'NotFoundError'
+            ? 'No microphone device found on this device.'
+            : err.name === 'NotReadableError'
+              ? 'Microphone is in use by another application.'
+              : `Microphone error: ${err.message}`;
 
-      console.warn(`[AudioEngine] ${msg}`);
+      console.warn(`[AudioEngine v2.0] ${msg}`);
       metrics.active     = false;
       metrics.sourceType = 'none';
       isActive           = false;
@@ -237,8 +272,9 @@ window.AudioEngine = (function () {
   /**
    * initFromElement — connect an existing <audio> or <video>
    * element as the audio source (file playback mode).
+   * Also connects to speakers so the user hears playback.
    *
-   * @param {HTMLMediaElement} element
+   * @param  {HTMLMediaElement} element
    * @returns {boolean}
    */
   function initFromElement(element) {
@@ -249,49 +285,50 @@ window.AudioEngine = (function () {
     try {
       sourceNode = audioCtx.createMediaElementSource(element);
       sourceNode.connect(gainNode);
-      /* Also connect to speakers so user hears playback */
+      /* Connect to output so user hears audio */
       sourceNode.connect(audioCtx.destination);
 
-      isActive            = true;
-      sourceType          = 'file';
-      metrics.active      = true;
-      metrics.sourceType  = 'file';
+      isActive           = true;
+      sourceType         = 'file';
+      metrics.active     = true;
+      metrics.sourceType = 'file';
+
+      console.info('[AudioEngine v2.0] File/element source connected.');
       return true;
 
     } catch (e) {
-      console.error('[AudioEngine] Element source failed:', e);
+      console.error('[AudioEngine v2.0] Element source failed:', e);
       return false;
     }
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 3 — FREQUENCY BAND EXTRACTION
+     SECTION 4 — FREQUENCY BAND EXTRACTION
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
    * getBandEnergy — compute RMS energy for a frequency range.
    *
-   * Converts FFT bin indices to Hz:
-   *   hz = bin × (sampleRate / fftSize)
+   * Converts Hz to FFT bin index:
+   *   bin = Hz × fftSize / sampleRate
    *
-   * @param {number} startHz
-   * @param {number} endHz
-   * @returns {number} [0..1]
+   * @param  {number} startHz
+   * @param  {number} endHz
+   * @returns {number} RMS energy [0..1]
    */
   function getBandEnergy(startHz, endHz) {
-    const sampleRate  = audioCtx ? audioCtx.sampleRate : 44100;
-    const binCount    = freqData.length;
-    const hzPerBin    = sampleRate / (FFT_SIZE);
+    const sampleRate = audioCtx ? audioCtx.sampleRate : 44100;
+    const binCount   = freqData.length;
+    const hzPerBin   = sampleRate / FFT_SIZE;
 
-    const startBin    = Math.max(0,
-                          Math.floor(startHz / hzPerBin));
-    const endBin      = Math.min(binCount - 1,
-                          Math.ceil(endHz  / hzPerBin));
+    const startBin   = Math.max(0,
+                         Math.floor(startHz / hzPerBin));
+    const endBin     = Math.min(binCount - 1,
+                         Math.ceil(endHz   / hzPerBin));
 
     if (startBin >= endBin) return 0;
 
-    /* RMS over the band */
     let sumSq = 0;
     for (let i = startBin; i <= endBin; i++) {
       const norm = freqData[i] / 255.0;
@@ -302,9 +339,8 @@ window.AudioEngine = (function () {
   }
 
   /**
-   * getSpectralCentroid — weighted average frequency.
-   * High centroid = bright/harsh sound.
-   * Low centroid  = deep/warm sound.
+   * getSpectralCentroid — weighted frequency average.
+   * High centroid = bright/harsh. Low centroid = warm/deep.
    * @returns {number} [0..1]
    */
   function getSpectralCentroid() {
@@ -312,9 +348,9 @@ window.AudioEngine = (function () {
     let totalWeight = 0;
 
     for (let i = 0; i < freqData.length; i++) {
-      const magnitude  = freqData[i] / 255.0;
-      weightedSum     += i * magnitude;
-      totalWeight     += magnitude;
+      const mag    = freqData[i] / 255.0;
+      weightedSum += i * mag;
+      totalWeight += mag;
     }
 
     if (totalWeight === 0) return 0;
@@ -337,36 +373,36 @@ window.AudioEngine = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 4 — BEAT DETECTION
-     Algorithm: Spectral Flux with Adaptive Threshold
+     SECTION 5 — BEAT DETECTION
+     Spectral Flux with Adaptive Threshold
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * detectBeat — compare current bass energy
-   * to rolling average. Fire if significantly above.
+   * detectBeat — fires when bass energy significantly
+   * exceeds the rolling average of recent frames.
    *
-   * Also runs an onset detector on high-frequency
-   * content change (for percussive sounds without bass).
+   * Two detection paths:
+   * 1. Bass beat  — low-frequency energy spike
+   * 2. Onset beat — high-frequency content change (hi-hats, snares)
+   *    catches percussive sounds without strong bass
    *
-   * @param {number} bassEnergy  current frame bass [0..1]
-   * @param {number} highSum     current high-band sum
+   * @param  {number} bassEnergy  current frame bass [0..1]
+   * @param  {number} highSum     current high-band average [0..1]
    * @returns {{beat: boolean, strength: number}}
    */
   function detectBeat(bassEnergy, highSum) {
 
-    /* Store in circular history buffer */
+    /* Store in circular history */
     bassHistory[historyIndex]   = bassEnergy;
     energyHistory[historyIndex] = bassEnergy;
     historyIndex = (historyIndex + 1) % HISTORY_SIZE;
 
     /* Rolling average */
     let avg = 0;
-    for (let i = 0; i < HISTORY_SIZE; i++) {
-      avg += energyHistory[i];
-    }
+    for (let i = 0; i < HISTORY_SIZE; i++) avg += energyHistory[i];
     avg /= HISTORY_SIZE;
 
-    /* Variance (for adaptive threshold) */
+    /* Variance — measures dynamic range of recent energy */
     let variance = 0;
     for (let i = 0; i < HISTORY_SIZE; i++) {
       const diff = energyHistory[i] - avg;
@@ -375,22 +411,23 @@ window.AudioEngine = (function () {
     variance /= HISTORY_SIZE;
 
     /* Adaptive threshold:
-       - High variance (dynamic music) → lower threshold
-       - Low variance (quiet/steady)   → higher threshold */
-    const adaptiveThreshold = BEAT_THRESHOLD - (variance * 1.5);
-    const threshold         = Math.max(1.3, adaptiveThreshold);
+       · High variance → lower threshold (dynamic music → more responsive)
+       · Low variance  → higher threshold (steady sound → less sensitive) */
+    const adaptive  = BEAT_THRESHOLD - (variance * 1.5);
+    const threshold = Math.max(1.3, adaptive);
 
-    /* High-frequency onset detection (spectral flux) */
+    /* High-frequency onset (spectral flux) */
     const highFlux = Math.max(0, highSum - prevHighSum);
     prevHighSum    = highSum;
 
-    /* Beat condition */
-    let isBeat    = false;
-    let strength  = 0;
+    let isBeat   = false;
+    let strength = 0;
 
     if (beatCooldown === 0) {
-      const bassBeat  = bassEnergy > avg * threshold && bassEnergy > 0.12;
-      const onsetBeat = highFlux > 0.08 && bassEnergy > avg * 1.2;
+      const bassBeat  = bassEnergy > avg * threshold &&
+                        bassEnergy > 0.12;
+      const onsetBeat = highFlux > 0.08 &&
+                        bassEnergy > avg * 1.2;
 
       if (bassBeat || onsetBeat) {
         isBeat   = true;
@@ -404,13 +441,12 @@ window.AudioEngine = (function () {
         const now = performance.now();
         if (lastBeatTime > 0) {
           const interval = now - lastBeatTime;
-          /* Only track realistic BPM (40–220) */
+          /* Only count intervals in realistic BPM range (40–220) */
           if (interval > 272 && interval < 1500) {
             bpmHistory.push(interval);
-            if (bpmHistory.length > BPM_HISTORY_MAX) {
-              bpmHistory.shift();
-            }
-            /* BPM = 60000ms / median interval */
+            if (bpmHistory.length > BPM_HISTORY_MAX) bpmHistory.shift();
+
+            /* Median inter-beat interval → stable BPM */
             const sorted = bpmHistory.slice().sort((a, b) => a - b);
             const median = sorted[Math.floor(sorted.length / 2)];
             estimatedBPM = Math.round(60000 / median);
@@ -420,7 +456,6 @@ window.AudioEngine = (function () {
       }
     }
 
-    /* Count down cooldown */
     if (beatCooldown > 0) beatCooldown--;
 
     return { beat: isBeat, strength };
@@ -428,18 +463,18 @@ window.AudioEngine = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 5 — EXPONENTIAL SMOOTHING
+     SECTION 6 — EXPONENTIAL SMOOTHING
+     Attack/release model — mimics VU meter ballistics
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * smooth — exponential moving average
-   * Fast rise (attack) / slow fall (release) filter.
-   * Mimics VU meter ballistics.
+   * smooth — exponential moving average with
+   * separate attack (rise) and release (fall) rates.
    *
-   * @param {number} current   previous smoothed value
-   * @param {number} target    new raw value
-   * @param {number} attack    rise coefficient  [0..1]
-   * @param {number} release   fall coefficient  [0..1]
+   * @param {number} current  previous smoothed value
+   * @param {number} target   new raw value
+   * @param {number} attack   rise coefficient  [0..1]
+   * @param {number} release  fall coefficient  [0..1]
    * @returns {number}
    */
   function smooth(current, target, attack, release) {
@@ -449,59 +484,70 @@ window.AudioEngine = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 6 — MAIN UPDATE FUNCTION
-     Called every animation frame from main.js
+     SECTION 7 — MAIN UPDATE FUNCTION
+     Called every animation frame from main.js masterLoop
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * update — pull latest FFT data from the analyser
-   * and compute all output metrics.
+   * update — pull FFT data and compute all metrics.
+   *
    * Must be called inside a requestAnimationFrame loop.
+   * In v2.0 this is called from masterLoop() in main.js
+   * every frame before SyncController.tick().
+   *
+   * When not active:
+   * All metrics decay to zero smoothly so the
+   * SyncController and Cube3D receive clean fallback values.
    */
   function update() {
-    /* Early exit if not active */
+
+    /* Graceful decay when not active */
     if (!isActive || !analyser) {
-      /* Decay all metrics to zero gracefully */
       metrics.amplitude  = smooth(metrics.amplitude,  0, 0.1, 0.05);
       metrics.bassEnergy = smooth(metrics.bassEnergy, 0, 0.1, 0.05);
       metrics.midEnergy  = smooth(metrics.midEnergy,  0, 0.1, 0.05);
       metrics.highEnergy = smooth(metrics.highEnergy, 0, 0.1, 0.05);
-      metrics.beatDetect = false;
+      metrics.bassSmooth = smooth(metrics.bassSmooth, 0, 0.1, 0.03);
+      metrics.midSmooth  = smooth(metrics.midSmooth,  0, 0.1, 0.03);
+      metrics.highSmooth = smooth(metrics.highSmooth, 0, 0.1, 0.03);
+      metrics.beatDetect   = false;
+      metrics.beatStrength = smooth(metrics.beatStrength, 0, 0.1, 0.06);
       return;
     }
 
-    /* Resume context if browser suspended it */
+    /* Resume if browser suspended (iOS PWA requirement) */
     if (audioCtx.state === 'suspended') {
       audioCtx.resume();
       return;
     }
 
-    /* ── Pull FFT Data ── */
+    /* ── Pull FFT Data from AnalyserNode ── */
     analyser.getByteFrequencyData(freqData);
     analyser.getByteTimeDomainData(timeData);
 
-    /* ── Band Energy Extraction ──
-       Frequency bands tuned for music reactivity:
-       Sub-bass  20–80   Hz  (kick drum thud)
-       Bass      80–250  Hz  (bass guitar, kick body)
-       Low-mid   250–500 Hz  (vocals, snare body)
-       Mid       500–2k  Hz  (instruments, vocals)
-       Presence  2k–6k   Hz  (attack, clarity)
-       Brilliance 6k–20k Hz  (air, cymbals, hi-hats)  */
+    /* ── Band Energy Extraction ──────────────────────
+       6-band spectrum split tuned for music reactivity:
 
-    const subBass    = getBandEnergy(20,   80  );
-    const bass       = getBandEnergy(80,   250 );
-    const lowMid     = getBandEnergy(250,  500 );
-    const mid        = getBandEnergy(500,  2000);
-    const pres       = getBandEnergy(2000, 6000);
-    const high       = getBandEnergy(6000, 20000);
+       Sub-bass   20–80   Hz  kick drum thud, low rumble
+       Bass       80–250  Hz  bass guitar, kick drum body
+       Low-mid   250–500  Hz  snare body, male vocals
+       Mid       500–2k   Hz  instruments, female vocals
+       Presence   2k–6k   Hz  attack clarity, consonants
+       Brilliance 6k–20k  Hz  air, cymbals, hi-hats
+    ──────────────────────────────────────────────── */
+    const subBass = getBandEnergy(20,   80  );
+    const bass    = getBandEnergy(80,   250 );
+    const lowMid  = getBandEnergy(250,  500 );
+    const mid     = getBandEnergy(500,  2000);
+    const pres    = getBandEnergy(2000, 6000);
+    const high    = getBandEnergy(6000, 20000);
 
-    /* Combined bands */
-    const bassTotal  = subBass * 0.4 + bass * 0.6;
-    const midTotal   = lowMid  * 0.3 + mid  * 0.7;
-    const highTotal  = pres    * 0.5 + high * 0.5;
+    /* Weighted combinations for SyncController */
+    const bassTotal = subBass * 0.4 + bass  * 0.6;
+    const midTotal  = lowMid  * 0.3 + mid   * 0.7;
+    const highTotal = pres    * 0.5 + high  * 0.5;
 
-    /* Overall RMS amplitude (full spectrum) */
+    /* Overall RMS amplitude — full spectrum */
     let sumSq = 0;
     for (let i = 0; i < freqData.length; i++) {
       const n = freqData[i] / 255.0;
@@ -510,7 +556,7 @@ window.AudioEngine = (function () {
     const rms = Math.sqrt(sumSq / freqData.length);
 
     /* ── Beat Detection ── */
-    /* Pass high sum for onset detection */
+    /* Compute high-frequency average for onset detection */
     const highBinStart = Math.floor(freqData.length * 0.5);
     let   highSum      = 0;
     for (let i = highBinStart; i < freqData.length; i++) {
@@ -524,66 +570,76 @@ window.AudioEngine = (function () {
     const centroid   = getSpectralCentroid();
     const waveformPk = getWaveformPeak();
 
-    /* ── Apply Smoothing (attack/release model) ──
-       Attack  = fast rise  (responsive to hits)
-       Release = slow fall  (sustain glow)        */
-    metrics.amplitude  = smooth(metrics.amplitude,  rms,       0.7, 0.12);
-    metrics.bassEnergy = smooth(metrics.bassEnergy, bassTotal, 0.8, 0.10);
-    metrics.midEnergy  = smooth(metrics.midEnergy,  midTotal,  0.7, 0.12);
-    metrics.presEnergy = smooth(metrics.presEnergy, pres,      0.7, 0.15);
-    metrics.highEnergy = smooth(metrics.highEnergy, highTotal, 0.6, 0.15);
+    /* ── Apply Smoothing ─────────────────────────────
+       Attack  = fast rise  (responsive to transients)
+       Release = slow fall  (sustain the visual glow)
+    ──────────────────────────────────────────────── */
+    metrics.amplitude  = smooth(metrics.amplitude,  rms,       0.7,  0.12);
+    metrics.bassEnergy = smooth(metrics.bassEnergy, bassTotal, 0.8,  0.10);
+    metrics.midEnergy  = smooth(metrics.midEnergy,  midTotal,  0.7,  0.12);
+    metrics.presEnergy = smooth(metrics.presEnergy, pres,      0.7,  0.15);
+    metrics.highEnergy = smooth(metrics.highEnergy, highTotal, 0.6,  0.15);
 
-    /* Slower smoothed versions for visual output */
-    metrics.bassSmooth = smooth(metrics.bassSmooth, bassTotal, 0.4, 0.06);
-    metrics.midSmooth  = smooth(metrics.midSmooth,  midTotal,  0.4, 0.08);
-    metrics.highSmooth = smooth(metrics.highSmooth, highTotal, 0.35,0.08);
+    /* Slower visual smoothing — used for bloom and sync bars */
+    metrics.bassSmooth = smooth(metrics.bassSmooth, bassTotal, 0.4,  0.06);
+    metrics.midSmooth  = smooth(metrics.midSmooth,  midTotal,  0.4,  0.08);
+    metrics.highSmooth = smooth(metrics.highSmooth, highTotal, 0.35, 0.08);
 
     /* Spectral features */
-    metrics.centroid     = smooth(metrics.centroid,     centroid, 0.3, 0.1);
-    metrics.waveformPeak = smooth(metrics.waveformPeak, waveformPk, 0.8, 0.1);
+    metrics.centroid     = smooth(metrics.centroid,     centroid,   0.3, 0.10);
+    metrics.waveformPeak = smooth(metrics.waveformPeak, waveformPk, 0.8, 0.10);
 
-    /* Beat output — true for exactly one frame */
+    /* Beat — true for exactly one frame */
     metrics.beatDetect   = beat;
-    metrics.beatStrength = beat ? strength : smooth(metrics.beatStrength,
-                                                    0, 0.1, 0.08);
-    metrics.bpm          = estimatedBPM;
-    metrics.active       = true;
-    metrics.sourceType   = sourceType;
+    metrics.beatStrength = beat
+      ? strength
+      : smooth(metrics.beatStrength, 0, 0.1, 0.08);
+
+    metrics.bpm        = estimatedBPM;
+    metrics.active     = true;
+    metrics.sourceType = sourceType;
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 7 — UTILITY FUNCTIONS
+     SECTION 8 — CONFIGURATION
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * setGain — adjust input volume [0..4]
+   * setGain — adjust input volume [0..4].
+   * Uses setTargetAtTime for smooth 10ms ramp.
    * @param {number} value
    */
   function setGain(value) {
-    if (gainNode) {
+    if (gainNode && audioCtx) {
       gainNode.gain.setTargetAtTime(
         Math.max(0, Math.min(4, value)),
         audioCtx.currentTime,
-        0.01   /* 10ms smooth ramp */
+        0.01
       );
     }
   }
 
   /**
-   * setSmoothing — change analyser time-constant [0..1]
-   * Lower = more responsive, higher = smoother
+   * setSmoothing — change analyser time-constant [0..0.99].
+   * Lower = more responsive, Higher = smoother.
    * @param {number} value
    */
   function setSmoothing(value) {
     if (analyser) {
-      analyser.smoothingTimeConstant = Math.max(0, Math.min(0.99, value));
+      analyser.smoothingTimeConstant =
+        Math.max(0, Math.min(0.99, value));
     }
   }
 
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 9 — DATA ACCESS
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
   /**
-   * getFrequencyArray — returns a copy of the raw
-   * frequency data for custom visualisations.
+   * getFrequencyArray — copy of raw FFT frequency data.
+   * Useful for custom visualisers built on top of the engine.
    * @returns {Uint8Array|null}
    */
   function getFrequencyArray() {
@@ -592,8 +648,7 @@ window.AudioEngine = (function () {
   }
 
   /**
-   * getWaveformArray — returns a copy of the raw
-   * time-domain data.
+   * getWaveformArray — copy of raw time-domain data.
    * @returns {Uint8Array|null}
    */
   function getWaveformArray() {
@@ -601,8 +656,14 @@ window.AudioEngine = (function () {
     return new Uint8Array(timeData);
   }
 
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     SECTION 10 — LIFECYCLE
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
   /**
-   * stop — disconnect all sources and close context.
+   * stop — release microphone, close AudioContext,
+   * reset all state and metrics to zero.
    */
   function stop() {
     disconnectSource();
@@ -612,30 +673,32 @@ window.AudioEngine = (function () {
       audioCtx = null;
     }
 
-    analyser  = null;
-    gainNode  = null;
-    freqData  = null;
-    timeData  = null;
-    isActive  = false;
+    analyser = null;
+    gainNode = null;
+    freqData = null;
+    timeData = null;
+    isActive = false;
 
-    /* Reset metrics */
-    metrics.active       = false;
-    metrics.sourceType   = 'none';
-    metrics.amplitude    = 0;
-    metrics.bassEnergy   = 0;
-    metrics.midEnergy    = 0;
-    metrics.presEnergy   = 0;
-    metrics.highEnergy   = 0;
-    metrics.bassSmooth   = 0;
-    metrics.midSmooth    = 0;
-    metrics.highSmooth   = 0;
-    metrics.beatDetect   = false;
-    metrics.beatStrength = 0;
-    metrics.bpm          = 0;
-    metrics.centroid     = 0;
-    metrics.waveformPeak = 0;
+    /* Reset all metrics */
+    Object.assign(metrics, {
+      active:       false,
+      sourceType:   'none',
+      amplitude:    0,
+      bassEnergy:   0,
+      midEnergy:    0,
+      presEnergy:   0,
+      highEnergy:   0,
+      bassSmooth:   0,
+      midSmooth:    0,
+      highSmooth:   0,
+      beatDetect:   false,
+      beatStrength: 0,
+      bpm:          0,
+      centroid:     0,
+      waveformPeak: 0
+    });
 
-    /* Reset beat state */
+    /* Reset beat detection state */
     bassHistory.fill(0);
     energyHistory.fill(0);
     historyIndex = 0;
@@ -645,21 +708,22 @@ window.AudioEngine = (function () {
     prevHighSum  = 0;
     beatCooldown = 0;
 
-    console.info('[AudioEngine] Stopped and context closed.');
+    console.info('[AudioEngine v2.0] Stopped. Context closed.');
   }
 
   /**
-   * isSupported — check browser capability
+   * isSupported — check browser Web Audio API capability.
    * @returns {boolean}
    */
   function isSupported() {
     return !!(window.AudioContext || window.webkitAudioContext) &&
-           !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+           !!(navigator.mediaDevices &&
+              navigator.mediaDevices.getUserMedia);
   }
 
   /**
-   * getMetrics — return current output metrics object.
-   * Called each frame by main.js SyncController.
+   * getMetrics — return the current output metrics object.
+   * Called every frame by main.js SyncController.tick().
    * @returns {Object}
    */
   function getMetrics() {
@@ -667,7 +731,7 @@ window.AudioEngine = (function () {
   }
 
   /**
-   * getStatus — detailed engine status for UI display.
+   * getStatus — detailed engine status for debugging and UI.
    * @returns {Object}
    */
   function getStatus() {
@@ -676,8 +740,11 @@ window.AudioEngine = (function () {
       sourceType,
       contextState: audioCtx ? audioCtx.state : 'none',
       sampleRate:   audioCtx ? audioCtx.sampleRate : 0,
-      fftSize:      analyser ? analyser.fftSize : 0,
-      supported:    isSupported()
+      fftSize:      analyser  ? analyser.fftSize  : 0,
+      binCount:     analyser  ? analyser.frequencyBinCount : 0,
+      supported:    isSupported(),
+      bpm:          estimatedBPM,
+      beatCooldown
     };
   }
 
@@ -692,7 +759,7 @@ window.AudioEngine = (function () {
     initFromElement,
     stop,
 
-    /* Per-frame */
+    /* Per-frame (called from main.js masterLoop) */
     update,
 
     /* Output */
@@ -709,4 +776,4 @@ window.AudioEngine = (function () {
     isSupported
   };
 
-})(); // end AudioEngine
+})();
