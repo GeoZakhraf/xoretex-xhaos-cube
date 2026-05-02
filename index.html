@@ -2,31 +2,27 @@
 <html lang="en" dir="ltr" id="html-root">
 <head>
 
-  <!-- ═══════════════════════════════════════════
-       META & SEO
-  ═══════════════════════════════════════════ -->
   <meta charset="UTF-8" />
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0,
-                 maximum-scale=1.0, user-scalable=no" />
+                 maximum-scale=1.0, user-scalable=no,
+                 viewport-fit=cover" />
   <meta name="theme-color"        content="#000008" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style"
         content="black-translucent" />
   <meta name="description"
         content="GeoZakhraf Xhaos Engine v2.0 —
-                 Live 2D→3D Texture Mapping Generative Art" />
+                 Live 2D to 3D Generative Art Platform" />
 
   <title>GeoZakhraf · Xhaos Engine v2.0</title>
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- ═══════════════════════════════════════════
-       THREE.JS CORE
-  ═══════════════════════════════════════════ -->
+  <!-- Three.js r128 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
           crossorigin="anonymous"></script>
 
-  <!-- Post-Processing Stack -->
+  <!-- Post-Processing -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
@@ -37,9 +33,9 @@
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════
-     LOADING SCREEN
-═══════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════
+     LOADER
+═══════════════════════════════════════════════════ -->
 <div id="loader" class="loader" role="status" aria-live="polite">
 
   <div class="loader-logo">
@@ -61,87 +57,67 @@
     <span class="loader-geo">GEO</span>
     <span class="loader-zakhraf">ZAKHRAF</span>
   </div>
+
   <div class="loader-engine-tag">XHAOS ENGINE v2.0</div>
 
-  <!-- Integration badge — new in v2.0 -->
   <div class="loader-integration-badge">
-    2D FLOW → 3D SKIN · LIVE TEXTURE MAPPING
+    2D FLOW &rarr; 3D SKIN &middot; LIVE TEXTURE
   </div>
 
   <div class="loader-status" id="loader-status">
-    Initializing mathematical core…
+    Initializing…
   </div>
 
   <div class="loader-bar-track"
        role="progressbar"
-       aria-valuemin="0"
-       aria-valuemax="100"
-       aria-valuenow="0"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
        id="loader-progress-bar">
-    <div class="loader-bar-fill"  id="loader-bar-fill"></div>
-    <div class="loader-bar-glow"  id="loader-bar-glow"></div>
+    <div class="loader-bar-fill" id="loader-bar-fill"></div>
+    <div class="loader-bar-glow" id="loader-bar-glow"></div>
   </div>
+
   <div class="loader-percent" id="loader-percent">0%</div>
 
   <div class="loader-formula" id="loader-formula">
-    F(x,y,t) = sin(0.003·x + t) + cos(0.003·y + t)
+    F(x,y,t) = sin(0.003x + t) + cos(0.003y + t)
   </div>
 
-</div>
+</div><!-- /#loader -->
 
 
-<!-- ═══════════════════════════════════════════════════════════
-     MAIN APPLICATION SHELL
-═══════════════════════════════════════════════════════════ -->
-<div id="app" class="app hidden" aria-label="GeoZakhraf Xhaos Engine">
+<!-- ═══════════════════════════════════════════════════
+     APP SHELL
+═══════════════════════════════════════════════════ -->
+<div id="app" class="app hidden">
 
-  <!-- ════════════════════════════════════
-       CANVAS LAYERS
-       CRITICAL ORDER:
-       canvas2d (id="canvas2d") — 2D particle engine
-                                  ALSO used as live
-                                  texture source for 3D cube
-       canvas3d (id="canvas3d") — Three.js renderer
-                                  maps canvas2d onto cube
-  ════════════════════════════════════ -->
-
-  <!--
-    The 2D canvas serves dual purpose:
-    1. Renders the 2D particle flow-field visually
-    2. Is read by THREE.CanvasTexture every frame
-       and applied to the 3D cube faces as a live skin
-
-    IMPORTANT: This canvas must be rendered BEFORE
-    the 3D frame each animation cycle so the texture
-    is always one-frame fresh.
-  -->
-  <canvas id="canvas2d"
-          aria-hidden="true"
-          title="2D Flow-Field Source — also used as 3D cube texture"></canvas>
-
-  <!--
-    The 3D canvas renders on top.
-    Its background is transparent so the 2D canvas
-    glows through around the cube edges.
-    The cube faces display the canvas2d content
-    wrapped as a CanvasTexture via MeshBasicMaterial.
-  -->
+  <!-- ── Canvas Layers ── -->
+  <canvas id="canvas2d" aria-hidden="true"></canvas>
   <canvas id="canvas3d"
-          aria-label="Interactive 3D Xhaos Cube — live 2D texture skin"></canvas>
+          aria-label="Interactive 3D Xhaos Cube"></canvas>
+
+  <!-- ── Mobile Hamburger Button ── -->
+  <button class="mobile-menu-btn glass"
+          id="btn-mobile-menu"
+          aria-label="Open formula panel"
+          aria-expanded="false">&#9776;</button>
+
+  <!-- ── Mobile Panel Backdrop ── -->
+  <div class="panel-backdrop" id="panel-backdrop"></div>
 
 
-  <!-- ════════════════════════════════════
-       HEADER HUD
-  ════════════════════════════════════ -->
+  <!-- ════════════════════════════════
+       HEADER
+  ════════════════════════════════ -->
   <header class="hud-header glass" role="banner">
 
-    <div class="brand" aria-label="GeoZakhraf Xhaos Engine">
+    <!-- Brand -->
+    <div class="brand">
       <div class="brand-hex" aria-hidden="true">
-        <svg viewBox="0 0 40 40" width="28" height="28">
+        <svg viewBox="0 0 40 40" width="24" height="24">
           <polygon points="20,2 38,11 38,29 20,38 2,29 2,11"
                    fill="none" stroke="#00f0ff" stroke-width="1.2"/>
           <text x="20" y="25" text-anchor="middle"
-                fill="#00f0ff" font-size="14" font-weight="bold">X</text>
+                fill="#00f0ff" font-size="13" font-weight="bold">X</text>
         </svg>
       </div>
       <span class="brand-geo">GEO</span>
@@ -151,7 +127,7 @@
 
     <!-- Live Metrics -->
     <div class="hud-metrics" aria-live="polite">
-      <div class="metric-chip">
+      <div class="metric-chip" id="metric-fps">
         <span class="metric-label">FPS</span>
         <span class="metric-value" id="fps-value">60</span>
       </div>
@@ -159,73 +135,71 @@
         <span class="metric-label">BEAT</span>
         <div class="beat-dot" id="beat-dot"></div>
       </div>
-      <div class="metric-chip">
-        <span class="metric-label">FORMULA</span>
+      <div class="metric-chip" id="metric-formula">
+        <span class="metric-label">NO.</span>
         <span class="metric-value" id="formula-index-display">01</span>
       </div>
-      <!-- NEW: Texture sync indicator -->
       <div class="metric-chip" id="metric-tex">
-        <span class="metric-label">TEX SYNC</span>
+        <span class="metric-label">TEX</span>
         <div class="tex-dot" id="tex-dot"></div>
       </div>
     </div>
 
     <!-- Controls -->
-    <nav class="hud-controls" aria-label="Engine controls">
+    <nav class="hud-controls" aria-label="Controls">
       <button class="icon-btn" id="btn-lang"
-              title="Toggle Language / تبديل اللغة"
+              title="Toggle Language"
               aria-label="Switch language">AR</button>
 
       <button class="icon-btn" id="btn-pov"
-              title="POV Mode — First Person Inside Cube"
-              aria-label="Toggle POV mode"
-              aria-pressed="false">⊙ POV</button>
+              title="POV Mode"
+              aria-label="Toggle POV"
+              aria-pressed="false">&#8857; POV</button>
 
       <button class="icon-btn" id="btn-tex-mode"
-              title="Toggle: Live Texture / Shader Mode"
+              title="Toggle Live Texture / Shader"
               aria-label="Toggle texture mode"
-              aria-pressed="true">⬡ LIVE TEX</button>
+              aria-pressed="true">&#11043; TEX</button>
 
       <button class="icon-btn" id="btn-audio"
-              title="Enable Audio Reactivity"
-              aria-label="Toggle audio reactivity"
-              aria-pressed="false">♫ AUDIO</button>
+              title="Audio Reactivity"
+              aria-label="Toggle audio"
+              aria-pressed="false">&#9835; AUDIO</button>
 
       <button class="icon-btn" id="btn-screenshot"
-              title="Capture Screenshot"
-              aria-label="Take screenshot">⬡ CAPTURE</button>
+              title="Screenshot"
+              aria-label="Capture screenshot">&#11043; CAP</button>
 
       <button class="icon-btn" id="btn-fullscreen"
-              title="Toggle Fullscreen"
-              aria-label="Toggle fullscreen">⛶ FULL</button>
+              title="Fullscreen"
+              aria-label="Toggle fullscreen">&#9974; FULL</button>
     </nav>
 
   </header>
 
 
-  <!-- ════════════════════════════════════
-       LEFT PANEL — Preset Library
-  ════════════════════════════════════ -->
+  <!-- ════════════════════════════════
+       LEFT PANEL — Formula Library
+  ════════════════════════════════ -->
   <aside id="panel-presets"
          class="side-panel glass"
-         aria-label="Formula Preset Library"
-         role="complementary">
+         aria-label="Formula Library">
 
     <div class="panel-header">
       <div class="panel-title-group">
         <span class="panel-title"
-              data-en="FORMULA LIBRARY"
-              data-ar="مكتبة الصيغ">FORMULA LIBRARY</span>
+              data-en="FORMULAS"
+              data-ar="الصيغ">FORMULAS</span>
         <span class="panel-count" id="panel-count">60</span>
       </div>
       <button class="icon-btn small"
               id="btn-toggle-panel"
               aria-label="Collapse panel"
-              aria-expanded="true">‹</button>
+              aria-expanded="true">&#8249;</button>
     </div>
 
     <div class="preset-search-wrap">
-      <div class="search-icon" aria-hidden="true">⌕</div>
+      <div class="search-icon" aria-hidden="true">&#8981;</div>
       <input type="search"
              id="preset-search"
              placeholder="Search formula…"
@@ -233,59 +207,50 @@
              aria-label="Search formulas" />
     </div>
 
-    <!--
-      NOTE: In v2.0 with live texture mapping,
-      both tabs now control the 2D engine ONLY.
-      The 3D cube automatically reflects whichever
-      formula is active because it reads the 2D canvas
-      as its texture in real time.
-
-      The 3D tab is kept for future shader-overlay mode.
-    -->
     <div class="preset-tabs" role="tablist">
       <button class="tab-btn active"
-              role="tab"
-              aria-selected="true"
+              role="tab" aria-selected="true"
               data-tab="2d"
-              data-en="2D · TEXTURE SRC"
-              data-ar="المصدر ثنائي الأبعاد">2D · TEXTURE SRC</button>
+              data-en="2D SOURCE"
+              data-ar="المصدر">2D SOURCE</button>
       <button class="tab-btn"
-              role="tab"
-              aria-selected="false"
+              role="tab" aria-selected="false"
               data-tab="3d"
-              data-en="3D · OVERLAY"
-              data-ar="تراكب ثلاثي الأبعاد">3D · OVERLAY</button>
+              data-en="3D OVERLAY"
+              data-ar="التراكب">3D OVERLAY</button>
     </div>
 
     <div class="preset-list"
          id="preset-list"
          role="listbox"
          aria-label="Formula presets">
+      <!-- Built by ui.js -->
     </div>
 
     <div class="panel-footer">
       <button class="action-btn full-width"
               id="btn-randomize"
-              data-en="⚄ RANDOMIZE"
-              data-ar="⚄ عشوائي">⚄ RANDOMIZE</button>
+              data-en="RANDOMIZE"
+              data-ar="عشوائي">&#9860; RANDOMIZE</button>
     </div>
 
   </aside>
 
 
-  <!-- ════════════════════════════════════
+  <!-- ════════════════════════════════
        BOTTOM CONTROL BAR
-  ════════════════════════════════════ -->
+  ════════════════════════════════ -->
   <div class="bottom-bar glass"
        id="bottom-bar"
        role="toolbar"
-       aria-label="Parameter controls">
+       aria-label="Parameters">
 
     <div class="param-group">
       <label for="param-speed"
              data-en="SPEED" data-ar="السرعة">SPEED</label>
       <input type="range" id="param-speed"
-             min="0" max="3" step="0.01" value="1" />
+             min="0" max="3" step="0.01" value="1"
+             aria-label="Speed" />
       <span class="param-val" id="val-speed">1.00</span>
     </div>
 
@@ -293,7 +258,8 @@
       <label for="param-scale"
              data-en="SCALE" data-ar="النطاق">SCALE</label>
       <input type="range" id="param-scale"
-             min="0.1" max="5" step="0.01" value="1" />
+             min="0.1" max="5" step="0.01" value="1"
+             aria-label="Scale" />
       <span class="param-val" id="val-scale">1.00</span>
     </div>
 
@@ -301,7 +267,8 @@
       <label for="param-chaos"
              data-en="CHAOS" data-ar="الفوضى">CHAOS</label>
       <input type="range" id="param-chaos"
-             min="0" max="1" step="0.01" value="0.5" />
+             min="0" max="1" step="0.01" value="0.5"
+             aria-label="Chaos" />
       <span class="param-val" id="val-chaos">0.50</span>
     </div>
 
@@ -309,7 +276,8 @@
       <label for="param-bloom"
              data-en="BLOOM" data-ar="الإضاءة">BLOOM</label>
       <input type="range" id="param-bloom"
-             min="0" max="3" step="0.01" value="1.2" />
+             min="0" max="3" step="0.01" value="1.2"
+             aria-label="Bloom" />
       <span class="param-val" id="val-bloom">1.20</span>
     </div>
 
@@ -317,7 +285,8 @@
       <label for="param-rotation"
              data-en="ROTATION" data-ar="الدوران">ROTATION</label>
       <input type="range" id="param-rotation"
-             min="-2" max="2" step="0.01" value="0.3" />
+             min="-2" max="2" step="0.01" value="0.3"
+             aria-label="Rotation" />
       <span class="param-val" id="val-rotation">0.30</span>
     </div>
 
@@ -325,17 +294,17 @@
       <label for="param-density"
              data-en="DENSITY" data-ar="الكثافة">DENSITY</label>
       <input type="range" id="param-density"
-             min="500" max="5000" step="100" value="2800" />
+             min="500" max="5000" step="100" value="2800"
+             aria-label="Density" />
       <span class="param-val" id="val-density">2800</span>
     </div>
 
-    <!-- NEW: Texture opacity slider -->
     <div class="param-group">
       <label for="param-tex-opacity"
-             data-en="TEX DEPTH"
-             data-ar="عمق النسيج">TEX DEPTH</label>
+             data-en="TEX" data-ar="نسيج">TEX</label>
       <input type="range" id="param-tex-opacity"
-             min="0" max="1" step="0.01" value="1" />
+             min="0" max="1" step="0.01" value="1"
+             aria-label="Texture depth" />
       <span class="param-val" id="val-tex-opacity">1.00</span>
     </div>
 
@@ -343,18 +312,18 @@
 
     <button class="action-btn pulse-on-beat"
             id="btn-shatter"
-            data-en="⚡ SHATTER"
-            data-ar="⚡ تحطيم">⚡ SHATTER</button>
+            data-en="SHATTER"
+            data-ar="تحطيم">&#9889; SHATTER</button>
 
-  </div>
+  </div><!-- /#bottom-bar -->
 
 
-  <!-- ════════════════════════════════════
-       SYNC HUD (Right)
-  ════════════════════════════════════ -->
+  <!-- ════════════════════════════════
+       SYNC HUD (Right Side)
+  ════════════════════════════════ -->
   <div class="sync-hud glass"
        id="sync-hud"
-       aria-label="Inversion Sync Monitor"
+       aria-label="Inversion Sync"
        role="status"
        aria-live="polite">
 
@@ -379,60 +348,57 @@
     </div>
 
     <div class="sync-row">
-      <span class="sync-label">Ω</span>
+      <span class="sync-label">&#937;</span>
       <div class="sync-bar-track">
         <div class="sync-bar-fill gold" id="sync-omega-fill"></div>
       </div>
       <span class="sync-num" id="sync-omega-num">0%</span>
     </div>
 
-    <!-- NEW: Texture sync status -->
     <div class="sync-row">
       <span class="sync-label">TEX</span>
       <div class="sync-bar-track">
-        <div class="sync-bar-fill green" id="sync-tex-fill"
+        <div class="sync-bar-fill green"
+             id="sync-tex-fill"
              style="width:100%"></div>
       </div>
       <span class="sync-num" id="sync-tex-num">LIVE</span>
     </div>
 
-    <div class="sync-direction" id="sync-direction">
+    <div class="sync-direction">
       <span class="dir-label"
             data-en="ROTATION"
             data-ar="الدوران">ROTATION</span>
       <div class="dir-arrows">
-        <span class="dir-arrow" id="dir-2d">↻</span>
-        <span class="dir-sep">↔</span>
-        <span class="dir-arrow" id="dir-3d">↺</span>
+        <span class="dir-arrow" id="dir-2d">&#8635;</span>
+        <span class="dir-sep">&#8596;</span>
+        <span class="dir-arrow" id="dir-3d">&#8634;</span>
       </div>
     </div>
 
-  </div>
+  </div><!-- /#sync-hud -->
 
 
-  <!-- ════════════════════════════════════
-       ACTIVE PRESET LABEL
-  ════════════════════════════════════ -->
+  <!-- ════════════════════════════════
+       ACTIVE PRESET BADGE
+  ════════════════════════════════ -->
   <div class="active-label glass"
        id="active-label"
        aria-live="polite">
     <span class="active-num" id="active-preset-num">01</span>
     <div class="active-info">
       <span class="active-name" id="active-preset-name">Fiber Optics</span>
-      <span class="active-engine" id="active-engine-tag">
-        2D → 3D LIVE
-      </span>
+      <span class="active-engine" id="active-engine-tag">2D &rarr; 3D LIVE</span>
     </div>
   </div>
 
 
-  <!-- ════════════════════════════════════
+  <!-- ════════════════════════════════
        KEYBOARD SHORTCUTS OVERLAY
-  ════════════════════════════════════ -->
+  ════════════════════════════════ -->
   <div class="shortcuts-overlay hidden"
        id="shortcuts-overlay"
-       role="dialog"
-       aria-modal="true"
+       role="dialog" aria-modal="true"
        aria-label="Keyboard shortcuts">
     <div class="shortcuts-panel glass">
       <div class="shortcuts-header">
@@ -442,19 +408,19 @@
         </span>
         <button class="icon-btn small"
                 id="btn-close-shortcuts"
-                aria-label="Close shortcuts">✕</button>
+                aria-label="Close">&#10005;</button>
       </div>
       <div class="shortcuts-grid">
         <kbd>SPACE</kbd> <span>Shatter Cube</span>
-        <kbd>R</kbd>     <span>Randomize Preset</span>
-        <kbd>P</kbd>     <span>Toggle POV Mode</span>
+        <kbd>R</kbd>     <span>Randomize</span>
+        <kbd>P</kbd>     <span>POV Mode</span>
         <kbd>T</kbd>     <span>Toggle Texture / Shader</span>
+        <kbd>A</kbd>     <span>Audio Toggle</span>
         <kbd>F</kbd>     <span>Fullscreen</span>
-        <kbd>A</kbd>     <span>Toggle Audio</span>
-        <kbd>L</kbd>     <span>Toggle Language</span>
-        <kbd>←/→</kbd>   <span>Cycle 2D Preset</span>
-        <kbd>↑/↓</kbd>   <span>Cycle 3D Overlay</span>
-        <kbd>?</kbd>     <span>Show This Panel</span>
+        <kbd>L</kbd>     <span>Language</span>
+        <kbd>&#8592;/&#8594;</kbd> <span>Cycle Preset</span>
+        <kbd>?</kbd>     <span>This Panel</span>
+        <kbd>ESC</kbd>   <span>Close / Exit POV</span>
       </div>
     </div>
   </div>
@@ -467,14 +433,9 @@
 </div><!-- /#app -->
 
 
-<!-- ═══════════════════════════════════════════════════════════
-     SCRIPTS — Critical load order:
-     1. audio.js    — Web Audio API engine
-     2. engine2d.js — 2D particle renderer (renders canvas2d)
-     3. cube3d.js   — 3D engine (reads canvas2d as texture)
-     4. ui.js       — Interface controller
-     5. main.js     — Bootstrap + SyncController
-═══════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════
+     SCRIPTS — Order is critical
+═══════════════════════════════════════════════════ -->
 <script src="audio.js"></script>
 <script src="engine2d.js"></script>
 <script src="cube3d.js"></script>
