@@ -1,151 +1,448 @@
 <!DOCTYPE html>
 <html lang="en" dir="ltr" id="html-root">
 <head>
+
+  <!-- ═══════════════════════════════════════════
+       META & SEO
+  ═══════════════════════════════════════════ -->
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <meta name="theme-color" content="#000008" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0,
+                 maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color"        content="#000008" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description"
+        content="GeoZakhraf Xhaos Engine — 60-Formula Generative Art Platform" />
+
   <title>GeoZakhraf · Xhaos Engine</title>
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Three.js r158 via CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- Three.js Post-Processing (EffectComposer etc.) -->
+  <!-- ═══════════════════════════════════════════
+       THREE.JS CORE (r128 — stable for EffectComposer)
+  ═══════════════════════════════════════════ -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+          crossorigin="anonymous"></script>
+
+  <!-- ── Post-Processing Stack ── -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+
 </head>
 <body>
 
-  <!-- ═══════════════════════════════════════════
-       LOADING SCREEN
-  ═══════════════════════════════════════════ -->
-  <div id="loader" class="loader">
-    <div class="loader-brand">
-      <span class="loader-geo">GEO</span><span class="loader-zakhraf">ZAKHRAF</span>
+<!-- ═══════════════════════════════════════════════════════════
+     LOADING SCREEN
+     Animated progress bar with rotating status messages
+═══════════════════════════════════════════════════════════ -->
+<div id="loader" class="loader" role="status" aria-live="polite">
+
+  <!-- Logo Mark -->
+  <div class="loader-logo">
+    <div class="loader-hex">
+      <svg viewBox="0 0 100 100" class="hex-svg" aria-hidden="true">
+        <polygon points="50,5 95,27.5 95,72.5 50,95 5,72.5 5,27.5"
+                 fill="none" stroke="currentColor" stroke-width="1.5"
+                 class="hex-outer"/>
+        <polygon points="50,18 82,34 82,66 50,82 18,66 18,34"
+                 fill="none" stroke="currentColor" stroke-width="1"
+                 class="hex-inner"/>
+        <text x="50" y="55" text-anchor="middle"
+              class="hex-letter" font-size="22">X</text>
+      </svg>
     </div>
-    <div class="loader-subtitle" data-en="Xhaos Engine Initializing" data-ar="محرك الفوضى يبدأ التشغيل">
-      Xhaos Engine Initializing
-    </div>
-    <div class="loader-bar-wrap"><div class="loader-bar" id="loader-bar"></div></div>
-    <div class="loader-percent" id="loader-percent">0%</div>
   </div>
 
-  <!-- ═══════════════════════════════════════════
-       MAIN LAYOUT
-  ═══════════════════════════════════════════ -->
-  <div id="app" class="app hidden">
+  <!-- Brand Name -->
+  <div class="loader-brand" aria-label="GeoZakhraf">
+    <span class="loader-geo">GEO</span><span class="loader-zakhraf">ZAKHRAF</span>
+  </div>
+  <div class="loader-engine-tag">XHAOS ENGINE v2.0</div>
 
-    <!-- Header -->
-    <header class="hud-header glass">
-      <div class="brand">
-        <span class="brand-geo">GEO</span><span class="brand-zakhraf">ZAKHRAF</span>
-        <span class="brand-tag" id="brand-tag">XHAOS ENGINE</span>
-      </div>
-      <div class="hud-controls">
-        <button class="icon-btn" id="btn-lang" title="Toggle Language / تبديل اللغة">AR</button>
-        <button class="icon-btn" id="btn-pov"  title="POV Mode">⊙</button>
-        <button class="icon-btn" id="btn-audio" title="Audio React">♫</button>
-        <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">⛶</button>
-      </div>
-    </header>
+  <!-- Status Message -->
+  <div class="loader-status" id="loader-status">
+    Initializing mathematical core…
+  </div>
 
-    <!-- 2D Canvas Layer -->
-    <canvas id="canvas2d"></canvas>
+  <!-- Progress Bar -->
+  <div class="loader-bar-track" role="progressbar"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+       id="loader-progress-bar">
+    <div class="loader-bar-fill" id="loader-bar-fill"></div>
+    <div class="loader-bar-glow" id="loader-bar-glow"></div>
+  </div>
+  <div class="loader-percent" id="loader-percent">0%</div>
 
-    <!-- 3D WebGL Layer -->
-    <canvas id="canvas3d"></canvas>
+  <!-- Formula preview cycling during load -->
+  <div class="loader-formula" id="loader-formula">
+    F(x,y,t) = sin(0.003·x + t) + cos(0.003·y + t)
+  </div>
 
-    <!-- ═══════════════════════════════════════
-         SIDE PANEL — Presets
-    ═══════════════════════════════════════ -->
-    <aside id="panel-presets" class="side-panel glass" aria-label="Presets Panel">
-      <div class="panel-header">
-        <span data-en="PRESETS" data-ar="الإعدادات المسبقة">PRESETS</span>
-        <button class="icon-btn small" id="btn-toggle-panel">‹</button>
-      </div>
+</div><!-- /#loader -->
 
-      <div class="preset-search-wrap">
-        <input type="text" id="preset-search" placeholder="Search formula…" autocomplete="off" />
-      </div>
 
-      <div class="preset-tabs">
-        <button class="tab-btn active" data-tab="2d" data-en="2D BG" data-ar="خلفية 2D">2D BG</button>
-        <button class="tab-btn" data-tab="3d" data-en="3D FACE" data-ar="وجه 3D">3D FACE</button>
-      </div>
+<!-- ═══════════════════════════════════════════════════════════
+     MAIN APPLICATION SHELL
+═══════════════════════════════════════════════════════════ -->
+<div id="app" class="app hidden" aria-label="GeoZakhraf Xhaos Engine">
 
-      <div class="preset-list" id="preset-list">
-        <!-- Populated by ui.js -->
-      </div>
-    </aside>
+  <!-- ════════════════════════════════════
+       CANVAS LAYERS
+       2D underneath, 3D on top
+  ════════════════════════════════════ -->
+  <canvas id="canvas2d" aria-hidden="true"></canvas>
+  <canvas id="canvas3d" aria-label="Interactive 3D Xhaos Cube"></canvas>
 
-    <!-- ═══════════════════════════════════════
-         BOTTOM BAR — Live Parameters
-    ═══════════════════════════════════════ -->
-    <div class="bottom-bar glass" id="bottom-bar">
-      <div class="param-group">
-        <label data-en="Speed" data-ar="السرعة">Speed</label>
-        <input type="range" id="param-speed" min="0" max="3" step="0.01" value="1" />
-        <span class="param-val" id="val-speed">1.00</span>
+
+  <!-- ════════════════════════════════════
+       HEADER HUD
+  ════════════════════════════════════ -->
+  <header class="hud-header glass" role="banner">
+
+    <!-- Brand -->
+    <div class="brand" aria-label="GeoZakhraf Xhaos Engine">
+      <div class="brand-hex" aria-hidden="true">
+        <svg viewBox="0 0 40 40" width="28" height="28">
+          <polygon points="20,2 38,11 38,29 20,38 2,29 2,11"
+                   fill="none" stroke="#00f0ff" stroke-width="1.2"/>
+          <text x="20" y="25" text-anchor="middle"
+                fill="#00f0ff" font-size="14" font-weight="bold">X</text>
+        </svg>
       </div>
-      <div class="param-group">
-        <label data-en="Scale" data-ar="النطاق">Scale</label>
-        <input type="range" id="param-scale" min="0.1" max="5" step="0.01" value="1" />
-        <span class="param-val" id="val-scale">1.00</span>
-      </div>
-      <div class="param-group">
-        <label data-en="Chaos" data-ar="الفوضى">Chaos</label>
-        <input type="range" id="param-chaos" min="0" max="1" step="0.01" value="0.5" />
-        <span class="param-val" id="val-chaos">0.50</span>
-      </div>
-      <div class="param-group">
-        <label data-en="Bloom" data-ar="الإضاءة">Bloom</label>
-        <input type="range" id="param-bloom" min="0" max="3" step="0.01" value="1.2" />
-        <span class="param-val" id="val-bloom">1.20</span>
-      </div>
-      <div class="param-group">
-        <label data-en="Rotation" data-ar="الدوران">Rotation</label>
-        <input type="range" id="param-rotation" min="-2" max="2" step="0.01" value="0.3" />
-        <span class="param-val" id="val-rotation">0.30</span>
-      </div>
-      <button class="action-btn" id="btn-shatter" data-en="SHATTER" data-ar="تحطيم">SHATTER</button>
-      <button class="action-btn" id="btn-randomize" data-en="RANDOMIZE" data-ar="عشوائي">RANDOMIZE</button>
+      <span class="brand-geo">GEO</span>
+      <span class="brand-zakhraf">ZAKHRAF</span>
+      <span class="brand-tag" id="brand-tag" aria-label="Xhaos Engine">
+        XHAOS ENGINE
+      </span>
     </div>
 
-    <!-- ═══════════════════════════════════════
-         SYNC INDICATOR
-    ═══════════════════════════════════════ -->
-    <div class="sync-hud glass" id="sync-hud">
-      <div class="sync-row">
-        <span class="sync-label" data-en="2D" data-ar="ثنائي">2D</span>
-        <div class="sync-bar"><div class="sync-fill" id="sync-2d-fill"></div></div>
+    <!-- Live Metrics Strip -->
+    <div class="hud-metrics" aria-live="polite" aria-label="Live metrics">
+      <div class="metric-chip" id="metric-fps">
+        <span class="metric-label">FPS</span>
+        <span class="metric-value" id="fps-value">60</span>
       </div>
-      <div class="sync-row">
-        <span class="sync-label" data-en="3D" data-ar="ثلاثي">3D</span>
-        <div class="sync-bar"><div class="sync-fill" id="sync-3d-fill"></div></div>
+      <div class="metric-chip" id="metric-beat" aria-label="Beat detector">
+        <span class="metric-label">BEAT</span>
+        <div class="beat-dot" id="beat-dot"></div>
       </div>
-      <div class="sync-row">
-        <span class="sync-label" data-en="Ω" data-ar="Ω">Ω</span>
-        <div class="sync-bar"><div class="sync-fill" id="sync-omega-fill" style="background:var(--accent-gold)"></div></div>
+      <div class="metric-chip" id="metric-formula">
+        <span class="metric-label">FORMULA</span>
+        <span class="metric-value" id="formula-index-display">01</span>
       </div>
     </div>
 
-    <!-- Active Preset Label -->
-    <div class="active-label glass" id="active-label">
-      <span id="active-preset-num">01</span>
-      <span id="active-preset-name">Fiber Optics</span>
+    <!-- Control Buttons -->
+    <nav class="hud-controls" aria-label="Engine controls">
+      <button class="icon-btn"
+              id="btn-lang"
+              title="Toggle Language / تبديل اللغة"
+              aria-label="Switch language">AR</button>
+
+      <button class="icon-btn"
+              id="btn-pov"
+              title="POV Mode — First Person Inside Cube"
+              aria-label="Toggle POV mode"
+              aria-pressed="false">⊙ POV</button>
+
+      <button class="icon-btn"
+              id="btn-audio"
+              title="Enable Audio Reactivity"
+              aria-label="Toggle audio reactivity"
+              aria-pressed="false">♫ AUDIO</button>
+
+      <button class="icon-btn"
+              id="btn-screenshot"
+              title="Capture Screenshot"
+              aria-label="Take screenshot">⬡ CAPTURE</button>
+
+      <button class="icon-btn"
+              id="btn-fullscreen"
+              title="Toggle Fullscreen"
+              aria-label="Toggle fullscreen">⛶ FULL</button>
+    </nav>
+
+  </header><!-- /.hud-header -->
+
+
+  <!-- ════════════════════════════════════
+       LEFT PANEL — Preset Library
+  ════════════════════════════════════ -->
+  <aside id="panel-presets"
+         class="side-panel glass"
+         aria-label="Formula Preset Library"
+         role="complementary">
+
+    <!-- Panel Header -->
+    <div class="panel-header">
+      <div class="panel-title-group">
+        <span class="panel-title"
+              data-en="FORMULA LIBRARY"
+              data-ar="مكتبة الصيغ">FORMULA LIBRARY</span>
+        <span class="panel-count" id="panel-count">60</span>
+      </div>
+      <button class="icon-btn small"
+              id="btn-toggle-panel"
+              aria-label="Collapse panel"
+              aria-expanded="true">‹</button>
     </div>
 
-  </div><!-- /#app -->
+    <!-- Search -->
+    <div class="preset-search-wrap">
+      <div class="search-icon" aria-hidden="true">⌕</div>
+      <input type="search"
+             id="preset-search"
+             placeholder="Search formula…"
+             autocomplete="off"
+             aria-label="Search formulas" />
+    </div>
 
-  <!-- Scripts (order matters) -->
-  <script src="audio.js"></script>
-  <script src="engine2d.js"></script>
-  <script src="cube3d.js"></script>
-  <script src="ui.js"></script>
-  <script src="main.js"></script>
+    <!-- 2D / 3D Tabs -->
+    <div class="preset-tabs" role="tablist" aria-label="Engine target">
+      <button class="tab-btn active"
+              role="tab"
+              aria-selected="true"
+              data-tab="2d"
+              data-en="2D BACKGROUND"
+              data-ar="خلفية ثنائية">2D BG</button>
+      <button class="tab-btn"
+              role="tab"
+              aria-selected="false"
+              data-tab="3d"
+              data-en="3D CUBE FACE"
+              data-ar="وجه المكعب">3D FACE</button>
+    </div>
+
+    <!-- Preset Scroll List -->
+    <div class="preset-list"
+         id="preset-list"
+         role="listbox"
+         aria-label="Formula presets">
+      <!-- Populated dynamically by ui.js -->
+    </div>
+
+    <!-- Panel Footer — Quick Actions -->
+    <div class="panel-footer">
+      <button class="action-btn full-width"
+              id="btn-randomize"
+              data-en="⚄ RANDOMIZE"
+              data-ar="⚄ عشوائي"
+              aria-label="Randomize both engines">⚄ RANDOMIZE</button>
+    </div>
+
+  </aside><!-- /#panel-presets -->
+
+
+  <!-- ════════════════════════════════════
+       BOTTOM CONTROL BAR
+  ════════════════════════════════════ -->
+  <div class="bottom-bar glass"
+       id="bottom-bar"
+       role="toolbar"
+       aria-label="Parameter controls">
+
+    <!-- Speed -->
+    <div class="param-group">
+      <label for="param-speed"
+             data-en="SPEED"
+             data-ar="السرعة">SPEED</label>
+      <input type="range" id="param-speed"
+             min="0" max="3" step="0.01" value="1"
+             aria-valuemin="0" aria-valuemax="3" aria-valuenow="1" />
+      <span class="param-val" id="val-speed">1.00</span>
+    </div>
+
+    <!-- Scale -->
+    <div class="param-group">
+      <label for="param-scale"
+             data-en="SCALE"
+             data-ar="النطاق">SCALE</label>
+      <input type="range" id="param-scale"
+             min="0.1" max="5" step="0.01" value="1"
+             aria-valuemin="0.1" aria-valuemax="5" aria-valuenow="1" />
+      <span class="param-val" id="val-scale">1.00</span>
+    </div>
+
+    <!-- Chaos -->
+    <div class="param-group">
+      <label for="param-chaos"
+             data-en="CHAOS"
+             data-ar="الفوضى">CHAOS</label>
+      <input type="range" id="param-chaos"
+             min="0" max="1" step="0.01" value="0.5"
+             aria-valuemin="0" aria-valuemax="1" aria-valuenow="0.5" />
+      <span class="param-val" id="val-chaos">0.50</span>
+    </div>
+
+    <!-- Bloom -->
+    <div class="param-group">
+      <label for="param-bloom"
+             data-en="BLOOM"
+             data-ar="الإضاءة">BLOOM</label>
+      <input type="range" id="param-bloom"
+             min="0" max="3" step="0.01" value="1.2"
+             aria-valuemin="0" aria-valuemax="3" aria-valuenow="1.2" />
+      <span class="param-val" id="val-bloom">1.20</span>
+    </div>
+
+    <!-- Rotation -->
+    <div class="param-group">
+      <label for="param-rotation"
+             data-en="ROTATION"
+             data-ar="الدوران">ROTATION</label>
+      <input type="range" id="param-rotation"
+             min="-2" max="2" step="0.01" value="0.3"
+             aria-valuemin="-2" aria-valuemax="2" aria-valuenow="0.3" />
+      <span class="param-val" id="val-rotation">0.30</span>
+    </div>
+
+    <!-- Particle Density -->
+    <div class="param-group">
+      <label for="param-density"
+             data-en="DENSITY"
+             data-ar="الكثافة">DENSITY</label>
+      <input type="range" id="param-density"
+             min="500" max="5000" step="100" value="2800"
+             aria-valuemin="500" aria-valuemax="5000" aria-valuenow="2800" />
+      <span class="param-val" id="val-density">2800</span>
+    </div>
+
+    <!-- Separator -->
+    <div class="bar-sep" aria-hidden="true"></div>
+
+    <!-- Action Buttons -->
+    <button class="action-btn pulse-on-beat"
+            id="btn-shatter"
+            data-en="⚡ SHATTER"
+            data-ar="⚡ تحطيم"
+            aria-label="Shatter the cube">⚡ SHATTER</button>
+
+  </div><!-- /#bottom-bar -->
+
+
+  <!-- ════════════════════════════════════
+       RIGHT PANEL — Sync HUD
+  ════════════════════════════════════ -->
+  <div class="sync-hud glass"
+       id="sync-hud"
+       aria-label="Inversion Sync Monitor"
+       role="status"
+       aria-live="polite">
+
+    <div class="sync-title"
+         data-en="INVERSION SYNC"
+         data-ar="تزامن الانعكاس">INVERSION SYNC</div>
+
+    <!-- 2D Flow Energy -->
+    <div class="sync-row">
+      <span class="sync-label">2D</span>
+      <div class="sync-bar-track">
+        <div class="sync-bar-fill cyan" id="sync-2d-fill"></div>
+      </div>
+      <span class="sync-num" id="sync-2d-num">0%</span>
+    </div>
+
+    <!-- 3D Response -->
+    <div class="sync-row">
+      <span class="sync-label">3D</span>
+      <div class="sync-bar-track">
+        <div class="sync-bar-fill violet" id="sync-3d-fill"></div>
+      </div>
+      <span class="sync-num" id="sync-3d-num">0%</span>
+    </div>
+
+    <!-- Omega (audio energy) -->
+    <div class="sync-row">
+      <span class="sync-label">Ω</span>
+      <div class="sync-bar-track">
+        <div class="sync-bar-fill gold" id="sync-omega-fill"></div>
+      </div>
+      <span class="sync-num" id="sync-omega-num">0%</span>
+    </div>
+
+    <!-- Direction Indicator -->
+    <div class="sync-direction" id="sync-direction">
+      <span class="dir-label"
+            data-en="ROTATION"
+            data-ar="الدوران">ROTATION</span>
+      <div class="dir-arrows">
+        <span class="dir-arrow" id="dir-2d">↻</span>
+        <span class="dir-sep">↔</span>
+        <span class="dir-arrow" id="dir-3d">↺</span>
+      </div>
+    </div>
+
+  </div><!-- /#sync-hud -->
+
+
+  <!-- ════════════════════════════════════
+       ACTIVE PRESET LABEL
+       Bottom-left floating badge
+  ════════════════════════════════════ -->
+  <div class="active-label glass"
+       id="active-label"
+       aria-live="polite"
+       aria-label="Currently active formula">
+    <span class="active-num" id="active-preset-num">01</span>
+    <div class="active-info">
+      <span class="active-name" id="active-preset-name">Fiber Optics</span>
+      <span class="active-engine" id="active-engine-tag">2D ENGINE</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       KEYBOARD SHORTCUT OVERLAY
+       Shown on '?' key press
+  ════════════════════════════════════ -->
+  <div class="shortcuts-overlay hidden"
+       id="shortcuts-overlay"
+       role="dialog"
+       aria-modal="true"
+       aria-label="Keyboard shortcuts">
+    <div class="shortcuts-panel glass">
+      <div class="shortcuts-header">
+        <span data-en="KEYBOARD SHORTCUTS" data-ar="اختصارات لوحة المفاتيح">
+          KEYBOARD SHORTCUTS
+        </span>
+        <button class="icon-btn small" id="btn-close-shortcuts"
+                aria-label="Close shortcuts">✕</button>
+      </div>
+      <div class="shortcuts-grid">
+        <kbd>SPACE</kbd><span>Shatter Cube</span>
+        <kbd>R</kbd><span>Randomize Presets</span>
+        <kbd>P</kbd><span>Toggle POV Mode</span>
+        <kbd>F</kbd><span>Fullscreen</span>
+        <kbd>A</kbd><span>Toggle Audio</span>
+        <kbd>L</kbd><span>Toggle Language</kbd>
+        <kbd>←/→</kbd><span>Cycle 2D Preset</span>
+        <kbd>↑/↓</kbd><span>Cycle 3D Preset</span>
+        <kbd>?</kbd><span>Show This Panel</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       SCREENSHOT FLASH OVERLAY
+  ════════════════════════════════════ -->
+  <div class="screenshot-flash hidden" id="screenshot-flash"
+       aria-hidden="true"></div>
+
+</div><!-- /#app -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCRIPTS — Load order is critical
+     audio → engine2d → cube3d → ui → main
+═══════════════════════════════════════════════════════════ -->
+<script src="audio.js"></script>
+<script src="engine2d.js"></script>
+<script src="cube3d.js"></script>
+<script src="ui.js"></script>
+<script src="main.js"></script>
 
 </body>
 </html>
