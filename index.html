@@ -1,385 +1,530 @@
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<meta name="description" content="Xoretex Xhaos Cube — 2D+3D Particle Physics Engine">
-<meta name="theme-color" content="#00ff88">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Xoretex Xhaos Cube</title>
-
-<!-- Three.js for 3D cube -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Fira+Code:wght@400;700&family=Noto+Kufi+Arabic:wght@400;700&display=swap');
+/* ===== RESET ===== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;color:#c0fce8;font-family:'Share Tech Mono',monospace;-webkit-font-smoothing:antialiased;}
 :root{
-    --p:rgba(8,8,20,.95);--a:#00ff88;--a2:#00ccff;--a3:#ff00aa;
-    --d:#ff2244;--t:#ccc;--dm:rgba(255,255,255,.04);--bd:rgba(0,255,136,.1);
-    --f:'Fira Code',monospace;--fb:'Orbitron',sans-serif;--fa:'Noto Kufi Arabic',sans-serif
+  --accent:#00ffc8;--accent2:#ff00ff;--accent3:#00e5ff;--panelBg:rgba(8,12,20,0.88);
+  --panelBorder:rgba(0,255,200,0.18);--glassBlur:18px;--rad:8px;
+  --text:#c0fce8;--textDim:#5a8a7a;--danger:#ff4060;--warn:#ffb800;
+  --shadow:0 0 24px rgba(0,255,200,0.08);
 }
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body,html{overflow:hidden;background:#020208;font-family:var(--f);color:var(--t);height:100%;touch-action:none}
+::-webkit-scrollbar{width:6px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--accent);border-radius:3px;}
+/* ===== CANVAS STACK ===== */
+#canvasWrap{position:absolute;inset:0;z-index:0;}
+#canvasWrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+#bgCan{z-index:0;}
+#flowCan{z-index:1;}
+#glowCan{z-index:2;mix-blend-mode:screen;pointer-events:none;}
+#connCan{z-index:3;pointer-events:none;}
+#cubeCan{z-index:4;}
+#obstacleLayer{z-index:5;pointer-events:none;position:absolute;inset:0;}
+#forceFieldLayer{z-index:6;position:absolute;inset:0;pointer-events:none;}
+#touchRing{z-index:7;position:absolute;pointer-events:none;display:none;
+  width:80px;height:80px;border:2px solid var(--accent);border-radius:50%;
+  transform:translate(-50%,-50%);box-shadow:0 0 18px var(--accent);}
 
-/* === CANVAS LAYERS === */
-canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
-#bgCan{z-index:0}           /* Stars background */
-#flowCan{z-index:1}         /* 2D particle flow (Xoretex) */
-#glowCan{z-index:2;pointer-events:none;opacity:.5;mix-blend-mode:screen}
-#cubeCan{z-index:3}         /* 3D cube (Three.js) */
-#connCan{z-index:4;pointer-events:none;opacity:.3}
-#flowCan.mblur{filter:blur(0.5px)}
+/* ===== TOP BAR ===== */
+#topBar{position:fixed;top:0;left:0;right:0;height:44px;z-index:100;display:flex;align-items:center;
+  justify-content:space-between;padding:0 10px;background:rgba(6,8,14,0.82);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--panelBorder);}
+#topBar .left,#topBar .right{display:flex;gap:6px;align-items:center;}
+#topBar .title{font-family:'Orbitron',sans-serif;font-weight:900;font-size:14px;letter-spacing:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;user-select:none;white-space:nowrap;}
+.topBtn{background:rgba(0,255,200,0.08);border:1px solid var(--panelBorder);color:var(--accent);
+  font-family:'Share Tech Mono',monospace;font-size:12px;padding:4px 10px;border-radius:var(--rad);
+  cursor:pointer;transition:all .2s;white-space:nowrap;}
+.topBtn:hover{background:rgba(0,255,200,0.22);box-shadow:0 0 12px rgba(0,255,200,0.2);}
+.topBtn.active{background:rgba(0,255,200,0.25);box-shadow:0 0 12px var(--accent);}
 
-/* === RTL === */
-html[dir=rtl]{font-family:var(--fa),var(--f)}
-html[dir=rtl] #panel{right:auto;left:10px}
-html[dir=rtl] #panel.hid{transform:translateX(-400px)}
-html[dir=rtl] #togBtn{right:auto;left:380px}
-html[dir=rtl] #togBtn.shifted{left:15px}
+/* ===== MODE TABS ===== */
+#modeTabs{position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:100;display:flex;gap:4px;
+  background:var(--panelBg);border:1px solid var(--panelBorder);border-radius:var(--rad);padding:3px;
+  backdrop-filter:blur(var(--glassBlur));}
+.modeTab{font-family:'Orbitron',sans-serif;font-size:11px;padding:4px 14px;border:none;
+  background:transparent;color:var(--textDim);cursor:pointer;border-radius:5px;transition:all .25s;}
+.modeTab.active{background:rgba(0,255,200,0.18);color:var(--accent);box-shadow:0 0 10px rgba(0,255,200,0.15);}
 
-/* === SCROLLBAR === */
-::-webkit-scrollbar{width:3px}
-::-webkit-scrollbar-thumb{background:var(--a);border-radius:3px}
+/* ===== SIDE PANEL ===== */
+#sidePanel{position:fixed;top:44px;right:0;bottom:0;width:320px;z-index:90;
+  background:var(--panelBg);backdrop-filter:blur(var(--glassBlur));
+  border-left:1px solid var(--panelBorder);overflow-y:auto;overflow-x:hidden;
+  transition:transform .35s cubic-bezier(.4,0,.2,1);padding:10px 12px 80px;}
+#sidePanel.collapsed{transform:translateX(100%);}
+#panelToggle{position:fixed;top:50%;right:320px;z-index:91;transform:translateY(-50%);
+  width:24px;height:60px;background:var(--panelBg);border:1px solid var(--panelBorder);
+  border-right:none;border-radius:var(--rad) 0 0 var(--rad);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:14px;
+  transition:right .35s cubic-bezier(.4,0,.2,1);}
+#panelToggle.collapsed{right:0;}
 
-/* === PANEL === */
-#panel{position:fixed;top:10px;right:10px;width:358px;background:var(--p);backdrop-filter:blur(20px);border-radius:14px;border:1px solid var(--bd);z-index:100;max-height:95vh;overflow-y:auto;box-shadow:0 0 30px rgba(0,255,136,.08);transition:transform .35s,opacity .35s}
-#panel.hid{transform:translateX(400px);opacity:0;pointer-events:none}
+/* panel section */
+.pSec{margin-bottom:10px;border:1px solid var(--panelBorder);border-radius:var(--rad);overflow:hidden;}
+.pSecHead{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;
+  background:rgba(0,255,200,0.04);cursor:pointer;user-select:none;font-family:'Orbitron',sans-serif;
+  font-size:11px;letter-spacing:1px;transition:background .2s;}
+.pSecHead:hover{background:rgba(0,255,200,0.1);}
+.pSecHead .arrow{transition:transform .25s;font-size:10px;}
+.pSecHead.open .arrow{transform:rotate(90deg);}
+.pSecBody{padding:8px 10px;display:none;border-top:1px solid var(--panelBorder);}
+.pSecBody.open{display:block;}
 
-/* === HEADER === */
-.phead{padding:15px 17px 11px;border-bottom:1px solid rgba(255,255,255,.04);position:relative;overflow:hidden}
-.phead::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--a),var(--a2),var(--a3),var(--a));background-size:300%;animation:rbsl 5s linear infinite}
-@keyframes rbsl{0%,100%{background-position:0%}50%{background-position:100%}}
-.brandRow{display:flex;align-items:center;gap:10px}
-.brandIcon{width:35px;height:35px;border-radius:10px;background:linear-gradient(135deg,var(--a),var(--a2));display:flex;align-items:center;justify-content:center;font-family:var(--fb);font-size:15px;font-weight:900;color:#000;flex-shrink:0;animation:ipulse 3s ease-in-out infinite}
-@keyframes ipulse{0%,100%{box-shadow:0 0 15px rgba(0,255,136,.2)}50%{box-shadow:0 0 25px rgba(0,255,136,.5)}}
-.brandName{font-family:var(--fb);font-size:.83rem;font-weight:900;background:linear-gradient(90deg,var(--a),var(--a2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
-.brandSub{font-size:.48rem;opacity:.3;letter-spacing:1px;margin-top:1px}
-.headerTools{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
-.htool{width:28px;height:28px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .2s}
-.htool:hover{background:rgba(0,255,136,.08);border-color:var(--a)}
-.htool.on{background:rgba(0,255,136,.1);border-color:var(--a);color:var(--a)}
+/* form elements */
+.pLabel{display:block;font-size:10px;color:var(--textDim);margin:6px 0 2px;letter-spacing:.5px;}
+.pSlider{-webkit-appearance:none;width:100%;height:4px;background:rgba(0,255,200,0.15);
+  border-radius:2px;outline:none;margin:4px 0;}
+.pSlider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--accent);cursor:pointer;box-shadow:0 0 8px var(--accent);}
+.pInput,.pSelect,.pTextarea{width:100%;background:rgba(0,0,0,0.4);border:1px solid var(--panelBorder);
+  color:var(--text);font-family:'Share Tech Mono',monospace;font-size:11px;
+  padding:5px 8px;border-radius:5px;outline:none;transition:border .2s;}
+.pInput:focus,.pSelect:focus,.pTextarea:focus{border-color:var(--accent);}
+.pTextarea{resize:vertical;min-height:56px;}
+.pBtn{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;font-family:'Share Tech Mono',monospace;
+  font-size:11px;background:rgba(0,255,200,0.08);border:1px solid var(--panelBorder);color:var(--accent);
+  border-radius:5px;cursor:pointer;transition:all .2s;margin:2px;}
+.pBtn:hover{background:rgba(0,255,200,0.22);box-shadow:0 0 10px rgba(0,255,200,0.15);}
+.pBtn.danger{border-color:var(--danger);color:var(--danger);}
+.pBtnRow{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0;}
+.pCheck{display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;margin:3px 0;}
+.pCheck input{accent-color:var(--accent);}
+.pVal{font-size:10px;color:var(--accent);min-width:32px;text-align:right;}
+.pRow{display:flex;align-items:center;gap:6px;margin:3px 0;}
+.pColor{width:28px;height:22px;border:1px solid var(--panelBorder);border-radius:4px;cursor:pointer;
+  background:transparent;padding:0;}
+.indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:4px;}
+.indicator.valid{background:#0f0;box-shadow:0 0 6px #0f0;}
+.indicator.invalid{background:var(--danger);box-shadow:0 0 6px var(--danger);}
 
-/* === MODE TABS (2D / 3D / BOTH) === */
-.modeTabs{display:flex;gap:3px;margin-top:8px}
-.modeTab{flex:1;padding:6px;text-align:center;font-family:var(--fb);font-size:.5rem;letter-spacing:1px;color:rgba(255,255,255,.3);background:var(--dm);border:1px solid rgba(255,255,255,.05);border-radius:5px;cursor:pointer;transition:all .2s}
-.modeTab.active{color:var(--a);background:rgba(0,255,136,.08);border-color:var(--a)}
-.modeTab:hover{border-color:var(--a)}
+/* layer card */
+.layerCard{border:1px solid var(--panelBorder);border-radius:var(--rad);margin:6px 0;padding:8px;
+  background:rgba(0,0,0,0.2);transition:box-shadow .25s;}
+.layerCard.focused{box-shadow:0 0 14px var(--accent);}
+.layerTitle{font-family:'Orbitron',sans-serif;font-size:10px;cursor:pointer;letter-spacing:1px;
+  padding:2px 0;user-select:none;}
 
-/* === STATS === */
-.statsRow{display:flex;gap:4px;padding:9px 17px;border-bottom:1px solid rgba(255,255,255,.03)}
-.statBox{flex:1;background:rgba(0,255,136,.03);border:1px solid rgba(0,255,136,.06);border-radius:7px;padding:5px 3px;text-align:center}
-.statNum{font-family:var(--fb);font-size:.72rem;color:var(--a);font-weight:700}
-.statLbl{font-size:.41rem;opacity:.35;text-transform:uppercase;margin-top:1px}
+/* snippet grid */
+.snippetGrid{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+.snippetBtn{font-size:10px;padding:4px 6px;text-align:center;}
 
-/* === SECTIONS === */
-.sec{padding:11px 17px;border-bottom:1px solid rgba(255,255,255,.03)}
-.stitle{font-family:var(--fb);font-size:.52rem;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,.3);margin-bottom:9px;display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
-.stitle .arrow{font-size:7px;margin-left:auto;opacity:.3;transition:transform .3s}
-.stitle.shut .arrow{transform:rotate(-90deg)}
-.scontent{transition:all .3s;overflow:hidden}
-.stitle.shut+.scontent{max-height:0!important;opacity:0}
+/* audio bars */
+#audioBarWrap{height:40px;display:flex;align-items:flex-end;gap:1px;margin:6px 0;
+  background:rgba(0,0,0,0.3);border-radius:4px;padding:2px;overflow:hidden;}
+.aBar{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:1px;transition:height .06s;}
 
-/* === COMMON CONTROLS === */
-.dropdown{width:100%;background:rgba(0,0,0,.5);color:var(--t);border:1px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-family:var(--f);font-size:.62rem;cursor:pointer;appearance:none}
-.dropdown:focus{outline:none;border-color:var(--a)}
-.dropdown option{background:#0a0a18}
-.presetChips{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin-top:7px}
-.pchip{padding:5px 2px;text-align:center;background:var(--dm);border:1px solid rgba(255,255,255,.04);border-radius:6px;cursor:pointer;font-size:15px;transition:all .2s}
-.pchip:hover{background:rgba(0,255,136,.08);transform:translateY(-2px)}
+/* force field list */
+.ffItem{display:flex;align-items:center;gap:4px;font-size:10px;margin:3px 0;
+  padding:4px;border:1px solid rgba(0,255,200,0.08);border-radius:4px;}
+.ffItem .ffDot{width:10px;height:10px;border-radius:50%;}
 
-/* Inject */
-.injWrap{position:relative}
-.injInput{width:100%;height:52px;background:rgba(0,0,0,.6);color:var(--a);border:1px solid rgba(0,255,136,.1);border-radius:7px;padding:9px 28px 9px 10px;font-family:var(--f);font-size:.6rem;resize:none;transition:all .3s;line-height:1.5}
-.injInput:focus{outline:none;border-color:var(--a);height:78px}
-.injInput.err{border-color:var(--d);color:#f66}
-.injDot{position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:#333;transition:all .3s}
-.injDot.ok{background:var(--a);box-shadow:0 0 6px var(--a)}
-.injDot.err{background:var(--d)}
-.varChips{display:flex;flex-wrap:wrap;gap:2px;margin-top:5px}
-.vchip{font-size:.48rem;padding:2px 7px;background:rgba(0,255,136,.05);border:1px solid rgba(0,255,136,.08);border-radius:3px;cursor:pointer;color:var(--a);transition:all .2s}
-.vchip:hover{background:rgba(0,255,136,.15)}
+/* game HUD */
+#gameHUD{position:fixed;top:88px;left:50%;transform:translateX(-50%);z-index:95;
+  display:none;background:var(--panelBg);backdrop-filter:blur(10px);
+  border:1px solid var(--panelBorder);border-radius:var(--rad);padding:6px 16px;
+  font-family:'Orbitron',sans-serif;font-size:12px;text-align:center;min-width:240px;}
+#gameHUDTitle{font-size:13px;margin-bottom:4px;}
+#gameHUDInfo{font-size:11px;color:var(--accent);}
+#gameHUDBar{height:6px;background:rgba(0,0,0,0.4);border-radius:3px;margin:4px 0;overflow:hidden;}
+#gameHUDBarFill{height:100%;width:50%;background:linear-gradient(90deg,var(--accent),var(--accent2));
+  border-radius:3px;transition:width .3s;}
 
-/* Formula library */
-.flibWrap{margin-top:7px}
-.flibBtn{width:100%;padding:7px;background:rgba(0,204,255,.05);border:1px dashed rgba(0,204,255,.15);border-radius:6px;cursor:pointer;font-size:.53rem;color:var(--a2);text-align:center}
-.flibBtn:hover{background:rgba(0,204,255,.12)}
-.flibGrid{display:none;grid-template-columns:1fr 1fr;gap:3px;margin-top:5px}
-.flibGrid.open{display:grid}
-.flibItem{padding:5px 7px;background:var(--dm);border:1px solid rgba(255,255,255,.04);border-radius:5px;cursor:pointer;font-size:.48rem;transition:all .2s}
-.flibItem:hover{background:rgba(0,255,136,.06);border-color:var(--a)}
-.flibItem .flName{color:var(--a);font-weight:700;font-size:.52rem}
-.flibItem .flCode{opacity:.3;font-size:.38rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ===== TOAST ===== */
+#toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);z-index:200;
+  background:var(--panelBg);backdrop-filter:blur(12px);border:1px solid var(--panelBorder);
+  border-radius:var(--rad);padding:8px 20px;font-size:12px;color:var(--accent);
+  box-shadow:var(--shadow);opacity:0;transition:all .35s;pointer-events:none;white-space:nowrap;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
-/* Layer */
-.layerBox{background:var(--dm);border:1px solid rgba(255,255,255,.05);padding:11px;border-radius:9px;margin-bottom:7px;transition:all .3s;animation:layAnim .35s ease-out}
-@keyframes layAnim{from{opacity:0;transform:translateY(-7px)}to{opacity:1}}
-.layerBox:hover{border-color:rgba(255,255,255,.1)}
-.layerBox.off{opacity:.22;filter:grayscale(.8)}
-.layerBox.focused{border-color:var(--a);box-shadow:0 0 14px rgba(0,255,136,.14)}
-.layHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
-.layId{display:flex;align-items:center;gap:6px;cursor:pointer}
-.layDot{width:7px;height:7px;border-radius:50%}
-.layName{font-family:var(--fb);font-size:.57rem;font-weight:700;letter-spacing:1px}
-.layBtns{display:flex;gap:3px}
-.layBtn{width:23px;height:23px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:9px;transition:all .2s}
-.layBtn:hover{background:rgba(0,255,136,.1);border-color:var(--a)}
-.layBtn.on{background:rgba(0,255,136,.1);border-color:var(--a);color:var(--a)}
-.layBtn.del:hover{background:rgba(255,0,0,.15);border-color:var(--d);color:var(--d)}
-textarea.layCode{width:100%;height:47px;background:rgba(0,0,0,.5);color:var(--a);border:1px solid rgba(0,255,136,.08);border-radius:5px;padding:7px 9px;font-family:var(--f);font-size:.57rem;resize:none;line-height:1.5}
-textarea.layCode:focus{outline:none;border-color:var(--a)}
-textarea.layCode.err{border-color:var(--d)}
-.layOpts{display:flex;gap:7px;margin-top:7px;align-items:center;flex-wrap:wrap}
-input[type=color].colorPick{width:27px;height:27px;border:none;border-radius:5px;cursor:pointer;background:none}
-input[type=color].colorPick::-webkit-color-swatch-wrapper{padding:1px}
-input[type=color].colorPick::-webkit-color-swatch{border:1px solid rgba(255,255,255,.15);border-radius:4px}
-.miniCtrl{flex:1;min-width:55px}
-.miniLbl{font-size:.43rem;opacity:.3;display:flex;justify-content:space-between}
-.miniVal{color:var(--a)}
-.palRow{display:flex;gap:2px;margin-top:5px;width:100%}
-.palSw{flex:1;height:12px;border-radius:3px;border:1px solid rgba(255,255,255,.08)}
-.palSw:hover{transform:scaleY(1.4);border-color:var(--a)}
-.palSel{width:100%;margin-top:3px;background:rgba(0,0,0,.4);color:var(--t);border:1px solid rgba(255,255,255,.06);border-radius:3px;padding:3px;font-size:.46rem;appearance:none;cursor:pointer}
+/* ===== RECORDING BAR ===== */
+#recBar{position:fixed;bottom:0;left:0;right:0;height:28px;z-index:110;display:none;
+  background:rgba(255,0,80,0.12);border-top:1px solid var(--danger);align-items:center;
+  justify-content:center;gap:10px;font-size:11px;color:var(--danger);}
+#recBar.show{display:flex;}
+#recDot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:blink 1s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+#recTime{font-family:'Share Tech Mono',monospace;}
+#recProgress{width:160px;height:4px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden;}
+#recProgressFill{height:100%;background:var(--danger);width:0%;transition:width .5s;}
 
-/* Range */
-input[type=range]{width:100%;height:3px;-webkit-appearance:none;background:rgba(255,255,255,.06);border-radius:2px;outline:none}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--a);cursor:pointer;box-shadow:0 0 5px rgba(0,255,136,.4);border:2px solid rgba(0,0,0,.3)}
+/* ===== MODALS ===== */
+.modalOverlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.7);
+  display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.modalOverlay.show{display:flex;}
+.modalBox{background:rgba(10,14,22,0.96);border:1px solid var(--panelBorder);border-radius:12px;
+  max-width:600px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;position:relative;
+  box-shadow:0 0 40px rgba(0,255,200,0.08);}
+.modalClose{position:absolute;top:10px;right:14px;font-size:20px;color:var(--textDim);
+  cursor:pointer;background:none;border:none;transition:color .2s;}
+.modalClose:hover{color:var(--accent);}
+.modalTitle{font-family:'Orbitron',sans-serif;font-size:16px;margin-bottom:12px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;}
+.modalBody{font-size:12px;line-height:1.7;}
+.modalBody h3{color:var(--accent);margin:10px 0 4px;font-size:13px;}
+.modalBody kbd{background:rgba(0,255,200,0.1);padding:1px 6px;border-radius:3px;
+  border:1px solid var(--panelBorder);font-size:11px;}
+.modalBody pre{background:rgba(0,0,0,0.5);padding:10px;border-radius:6px;overflow-x:auto;
+  font-size:11px;margin:6px 0;white-space:pre-wrap;word-break:break-all;}
+.modalBody .step{padding:8px 0;border-bottom:1px solid rgba(0,255,200,0.06);}
+.modalBody .step:last-child{border:none;}
+.helpDontShow{margin-top:12px;display:flex;align-items:center;gap:6px;font-size:11px;}
+.helpDontShow input{accent-color:var(--accent);}
 
-/* Controls */
-.ctrl{margin:7px 0}
-.ctrlLbl{display:flex;justify-content:space-between;font-size:.57rem;margin-bottom:4px;opacity:.5}
-.ctrlVal{color:var(--a);font-weight:600;opacity:1}
-.selectBox{width:100%;background:rgba(0,0,0,.4);color:var(--t);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:7px;font-family:var(--f);font-size:.57rem;cursor:pointer;appearance:none}
-
-/* Toggle */
-.togRow{display:flex;align-items:center;justify-content:space-between;margin:7px 0}
-.togLbl{font-size:.57rem;opacity:.5}
-.togSw{width:35px;height:18px;border-radius:9px;background:rgba(255,255,255,.08);cursor:pointer;position:relative;transition:all .3s}
-.togSw.on{background:rgba(0,255,136,.3)}
-.togSw::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#555;transition:all .3s}
-.togSw.on::after{left:19px;background:var(--a)}
-
-/* Buttons */
-.btn{width:100%;padding:9px;cursor:pointer;border-radius:7px;font-family:var(--f);font-weight:700;font-size:.62rem;letter-spacing:1px;border:none;transition:all .2s}
-.btnMain{background:linear-gradient(135deg,var(--a),#00cc66);color:#000}
-.btnMain:hover{transform:translateY(-2px)}
-.btnOut{background:rgba(0,255,136,.06);color:var(--a);border:1px solid rgba(0,255,136,.2)}
-.btnOut:hover{background:rgba(0,255,136,.12)}
-.btnRow{display:flex;gap:5px}
-.btnRow .btn{flex:1}
-
-/* Action grid */
-.actGrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.actBtn{padding:8px 5px;text-align:center;background:var(--dm);border:1px solid rgba(255,255,255,.05);border-radius:7px;cursor:pointer;font-size:.56rem;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:3px}
-.actBtn:hover{background:rgba(0,255,136,.06);border-color:var(--bd)}
-.actBtn.recOn{border-color:var(--d);color:var(--d)}
-
-/* Audio */
-.audViz{display:flex;align-items:flex-end;gap:1px;height:28px;background:rgba(0,0,0,.3);border-radius:5px;padding:3px;overflow:hidden}
-.audBar{flex:1;min-width:2px;background:var(--a);border-radius:1px}
-
-/* Symmetry */
-.symChips{display:flex;gap:3px}
-.symChip{flex:1;padding:5px;text-align:center;background:var(--dm);border:1px solid rgba(255,255,255,.05);border-radius:5px;cursor:pointer;font-size:.57rem}
-.symChip.active{background:rgba(0,255,136,.1);border-color:var(--a);color:var(--a)}
-.symChip:hover{border-color:var(--a)}
-
-/* Fields */
-.ffList{display:flex;flex-direction:column;gap:3px}
-.ffItem{display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--dm);border-radius:5px;font-size:.48rem}
-.ffItem strong{color:var(--a)}
-.ffAdd{flex:1;padding:5px;text-align:center;background:var(--dm);border:1px dashed rgba(255,255,255,.08);border-radius:5px;cursor:pointer;font-size:.52rem}
-.ffAdd:hover{border-color:var(--a);color:var(--a)}
-
-/* Games */
-.gameBar{position:fixed;top:9px;left:50%;transform:translateX(-50%);z-index:150;display:none;align-items:center;gap:9px;background:var(--p);border:1px solid var(--bd);border-radius:9px;padding:7px 15px}
-.gameBar.active{display:flex}
-.gameScore{font-family:var(--fb);font-size:.77rem;color:var(--a);font-weight:700}
-.gameLabel{font-size:.5rem;opacity:.4}
-.gameBtn{padding:4px 10px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);cursor:pointer;font-size:.5rem}
-.obstacle{position:absolute;pointer-events:none;z-index:45;border-radius:50%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
-
-/* 3D Cube specific */
-.cube3dControls{display:flex;gap:4px;margin-top:6px}
-.cubePreset{flex:1;padding:6px;text-align:center;background:var(--dm);border:1px solid rgba(255,255,255,.05);border-radius:5px;cursor:pointer;font-size:.5rem;transition:all .2s}
-.cubePreset.active{background:rgba(0,204,255,.1);border-color:var(--a2);color:var(--a2)}
-.cubePreset:hover{border-color:var(--a2)}
-
-/* Pattern grid for cube */
-.patGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;margin-top:5px}
-.patCell{aspect-ratio:1;border-radius:3px;cursor:pointer;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;font-size:7px;color:rgba(255,255,255,.3)}
-.patCell.active{background:rgba(0,255,255,.2);border-color:rgba(0,255,255,.4);color:#0ff}
-
-/* Toggle btn */
-#togBtn{position:fixed;top:14px;right:378px;z-index:101;width:39px;height:39px;background:var(--p);border:1px solid var(--bd);border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;transition:all .35s}
-#togBtn:hover{background:rgba(0,255,136,.08)}
-#togBtn.shifted{right:14px}
-
-/* Field markers */
-.fieldMark{position:fixed;pointer-events:none;z-index:50;border-radius:50%;transform:translate(-50%,-50%);animation:fmpulse 2s ease-in-out infinite}
-@keyframes fmpulse{0%,100%{opacity:.4;transform:translate(-50%,-50%) scale(1)}50%{opacity:.8;transform:translate(-50%,-50%) scale(1.3)}}
-
-/* Touch ring */
-.touchRing{position:fixed;pointer-events:none;border:2px solid var(--a);border-radius:50%;transform:translate(-50%,-50%);opacity:0;z-index:50;transition:opacity .25s}
-.touchRing.on{opacity:.35}
-.touchRing.repel{border-color:var(--d)}
-
-/* Toast */
-#toast{position:fixed;bottom:19px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--p);border:1px solid var(--a);border-radius:9px;padding:9px 22px;font-size:.67rem;z-index:500;box-shadow:0 0 22px rgba(0,255,136,.15);transition:transform .4s cubic-bezier(.34,1.56,.64,1);pointer-events:none}
-#toast.show{transform:translateX(-50%) translateY(0)}
-
-/* Modal */
-.modalOv{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:600;display:none;align-items:center;justify-content:center}
-.modalOv.active{display:flex}
-.modalBox{background:var(--p);border:1px solid var(--bd);border-radius:15px;max-width:510px;width:92%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;animation:modAnim .35s ease-out}
-@keyframes modAnim{from{opacity:0;transform:scale(.95) translateY(14px)}to{opacity:1}}
-.modalHdr{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:center;justify-content:space-between}
-.modalTitle{font-family:var(--fb);font-size:.87rem;font-weight:900;color:var(--a)}
-.modalClose{width:29px;height:29px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
-.modalClose:hover{background:rgba(255,0,0,.1);color:var(--d)}
-.modalBody{padding:18px 20px;overflow-y:auto;flex:1}
-.helpStep{display:flex;gap:11px;margin-bottom:14px;padding:11px;background:var(--dm);border-radius:9px}
-.helpNum{width:30px;height:30px;border-radius:7px;flex-shrink:0;background:linear-gradient(135deg,var(--a),var(--a2));display:flex;align-items:center;justify-content:center;font-family:var(--fb);font-size:.75rem;font-weight:900;color:#000}
-.helpTxt h4{font-size:.65rem;margin-bottom:3px;color:var(--a)}
-.helpTxt p{font-size:.55rem;opacity:.6;line-height:1.4}
-.modalFoot{padding:13px 20px;border-top:1px solid rgba(255,255,255,.05);display:flex;gap:7px;align-items:center}
-.modalFoot label{font-size:.5rem;opacity:.4;flex:1;display:flex;align-items:center;gap:5px;cursor:pointer}
-.modalFoot input[type=checkbox]{accent-color:var(--a)}
-
-/* Rec progress */
-.recProg{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:var(--p);border:1px solid var(--d);border-radius:9px;padding:7px 18px;z-index:500;display:none;font-size:.65rem;color:var(--d)}
-
-/* Cycle preview */
-.cycPrev{height:18px;border-radius:5px;background:linear-gradient(90deg,#f00,#fa0,#0f0,#0ff,#00f,#f0f,#f00);opacity:0;transition:opacity .3s;margin-top:4px}
-
-/* Record format */
-.recFmt{display:flex;gap:3px;margin-top:5px}
-.recOpt{flex:1;padding:7px;text-align:center;background:var(--dm);border:1px solid rgba(255,255,255,.05);border-radius:5px;cursor:pointer;font-size:.57rem}
-.recOpt.active{background:rgba(0,255,136,.1);border-color:var(--a);color:var(--a)}
-
-/* Shatter effect */
-.shockwave{position:fixed;pointer-events:none;z-index:5;border-radius:50%;border:1px solid rgba(0,255,255,.6);animation:shockAnim .6s ease-out forwards}
-@keyframes shockAnim{0%{width:0;height:0;opacity:.8}100%{width:200px;height:200px;opacity:0}}
-
-@media(max-width:768px){
-    #panel{width:calc(100% - 16px);max-height:58vh;bottom:8px;top:auto;border-radius:13px}
-    #panel.hid{transform:translateY(120%)}
-    html[dir=rtl] #panel{left:8px;right:8px}
-    #togBtn{top:auto;bottom:13px;right:13px}
-    #togBtn.shifted{right:13px}
-    html[dir=rtl] #togBtn{left:13px;right:auto}
-    .modalBox{width:96%;max-height:85vh}
+/* ===== RESPONSIVE ===== */
+@media(max-width:720px){
+  #sidePanel{width:100%;top:44px;border-left:none;border-top:1px solid var(--panelBorder);}
+  #sidePanel.collapsed{transform:translateX(100%);}
+  #panelToggle{right:0;top:auto;bottom:10px;transform:none;border-radius:var(--rad) 0 0 var(--rad);}
+  #panelToggle.collapsed{right:0;}
+  #modeTabs{top:46px;font-size:10px;}
+  .topBtn{font-size:10px;padding:3px 6px;}
+  #topBar .title{font-size:11px;letter-spacing:1px;}
 }
+/* RTL */
+html[dir="rtl"] #sidePanel{right:auto;left:0;border-left:none;border-right:1px solid var(--panelBorder);}
+html[dir="rtl"] #sidePanel.collapsed{transform:translateX(-100%);}
+html[dir="rtl"] #panelToggle{right:auto;left:320px;border-radius:0 var(--rad) var(--rad) 0;
+  border-left:none;border-right:1px solid var(--panelBorder);}
+html[dir="rtl"] #panelToggle.collapsed{left:0;}
+@media(max-width:720px){
+  html[dir="rtl"] #panelToggle{left:0;right:auto;}
+}
+
+/* ===== FPS ===== */
+#fpsDisplay{position:fixed;bottom:6px;left:6px;z-index:80;font-size:10px;color:var(--textDim);
+  font-family:'Share Tech Mono',monospace;pointer-events:none;}
+
+/* ===== ERROR OVERLAY ===== */
+#errorOverlay{position:fixed;top:50px;left:10px;z-index:500;max-width:360px;
+  background:rgba(40,0,0,0.9);border:1px solid var(--danger);border-radius:var(--rad);
+  padding:10px 14px;font-size:11px;color:#faa;display:none;word-break:break-word;}
 </style>
 </head>
 <body>
 
-<!-- Canvas layers -->
-<canvas id="bgCan"></canvas>
-<canvas id="flowCan"></canvas>
-<canvas id="glowCan"></canvas>
-<canvas id="cubeCan"></canvas>
-<canvas id="connCan"></canvas>
-
-<!-- Overlays -->
-<div class="touchRing" id="touchRing"></div>
-<div id="fieldMarkers"></div>
-<div id="obsLayer"></div>
-
-<!-- Game bar -->
-<div class="gameBar" id="gameBar">
-    <div><div class="gameLabel" id="gameLabel"></div><div class="gameScore" id="gameScore">0</div></div>
-    <div class="gameBtn" onclick="exitGame()">✕</div>
+<!-- ===== CANVAS STACK ===== -->
+<div id="canvasWrap">
+  <canvas id="bgCan"></canvas>
+  <canvas id="flowCan"></canvas>
+  <canvas id="glowCan"></canvas>
+  <canvas id="connCan"></canvas>
+  <canvas id="cubeCan"></canvas>
+  <div id="obstacleLayer"></div>
+  <div id="forceFieldLayer"></div>
+  <div id="touchRing"></div>
 </div>
 
-<!-- Panel toggle -->
-<div id="togBtn" onclick="togglePanel()">⚡</div>
-
-<!-- MAIN PANEL -->
-<div id="panel">
-    <!-- Header -->
-    <div class="phead">
-        <div class="brandRow">
-            <div class="brandIcon">X</div>
-            <div>
-                <div class="brandName" data-t="brand">XORETEX XHAOS CUBE</div>
-                <div class="brandSub" data-t="subtitle">2D+3D PARTICLE ENGINE v8.0</div>
-            </div>
-        </div>
-        <div class="headerTools">
-            <div class="htool" onclick="toggleLang()">🌐</div>
-            <div class="htool" onclick="showHelp()">❓</div>
-            <div class="htool" onclick="togglePause()" id="pauseBtn">⏸</div>
-            <div class="htool" onclick="toggleFullscreen()">⛶</div>
-            <div class="htool" onclick="exportHiRes()">📷</div>
-            <div class="htool" id="recBtnH" onclick="toggleRecord()">⏺</div>
-        </div>
-        <!-- Mode tabs: control what's visible -->
-        <div class="modeTabs">
-            <div class="modeTab active" onclick="setViewMode('both',this)" data-t="mode_both">🎆 BOTH</div>
-            <div class="modeTab" onclick="setViewMode('2d',this)" data-t="mode_2d">🌊 2D Flow</div>
-            <div class="modeTab" onclick="setViewMode('3d',this)" data-t="mode_3d">🎲 3D Cube</div>
-        </div>
-    </div>
-
-    <!-- Stats -->
-    <div class="statsRow">
-        <div class="statBox"><div class="statNum" id="s-fps">60</div><div class="statLbl" data-t="fps">FPS</div></div>
-        <div class="statBox"><div class="statNum" id="s-pts">0</div><div class="statLbl" data-t="particles_lbl">PTS</div></div>
-        <div class="statBox"><div class="statNum" id="s-lyr">0</div><div class="statLbl" data-t="layers_lbl">LYR</div></div>
-        <div class="statBox"><div class="statNum" id="s-time">0.0</div><div class="statLbl" data-t="time_lbl">TIME</div></div>
-        <div class="statBox"><div class="statNum" id="s-pat">1/60</div><div class="statLbl" data-t="pattern_lbl">PAT</div></div>
-    </div>
-
-    <!-- All sections will be populated by engine scripts -->
-    <div id="panelSections"></div>
+<!-- ===== TOP BAR ===== -->
+<div id="topBar">
+  <div class="left">
+    <span class="title">XORETEX XHAOS CUBE</span>
+  </div>
+  <div class="right">
+    <button class="topBtn" id="btnLang" title="Language">EN</button>
+    <button class="topBtn" id="btnHelp" title="Help">?</button>
+    <button class="topBtn" id="btnPause" title="Pause">⏸</button>
+    <button class="topBtn" id="btnFullscreen" title="Fullscreen">⛶</button>
+    <button class="topBtn" id="btnScreenshot" title="Screenshot">📷</button>
+    <button class="topBtn" id="btnRecord" title="Record">⏺</button>
+  </div>
 </div>
 
-<!-- Toast -->
+<!-- ===== MODE TABS ===== -->
+<div id="modeTabs">
+  <button class="modeTab active" data-mode="both" id="tabBoth">BOTH</button>
+  <button class="modeTab" data-mode="2d" id="tab2D">2D Flow</button>
+  <button class="modeTab" data-mode="3d" id="tab3D">3D Cube</button>
+</div>
+
+<!-- ===== PANEL TOGGLE ===== -->
+<button id="panelToggle">◂</button>
+
+<!-- ===== SIDE PANEL ===== -->
+<div id="sidePanel">
+
+  <!-- PRESETS -->
+  <div class="pSec" id="secPresets">
+    <div class="pSecHead" data-sec="secPresetsBody"><span data-i18n="presets">Presets</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secPresetsBody">
+      <div class="pBtnRow" id="presetBtns"></div>
+    </div>
+  </div>
+
+  <!-- LIVE INJECTION -->
+  <div class="pSec" id="secInject">
+    <div class="pSecHead open" data-sec="secInjectBody"><span data-i18n="liveInjection">Live Injection</span><span class="arrow">▸</span></div>
+    <div class="pSecBody open" id="secInjectBody">
+      <label class="pLabel" data-i18n="formulaCode">Formula Code</label>
+      <textarea class="pTextarea" id="formulaInput" spellcheck="false" rows="3">sin(x*0.02+t)*cos(y*0.02+t)*2</textarea>
+      <div class="pRow" style="margin-top:4px;">
+        <button class="pBtn" id="btnApplyFormula" data-i18n="apply">Apply</button>
+        <span class="indicator valid" id="formulaIndicator"></span>
+        <span style="font-size:10px;color:var(--textDim)" id="formulaStatus" data-i18n="valid">Valid</span>
+      </div>
+      <label class="pLabel" data-i18n="snippetLibrary">Snippet Library</label>
+      <div class="snippetGrid" id="snippetGrid"></div>
+    </div>
+  </div>
+
+  <!-- LAYERS -->
+  <div class="pSec" id="secLayers">
+    <div class="pSecHead" data-sec="secLayersBody"><span data-i18n="layers">Layers</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secLayersBody">
+      <div id="layerCards"></div>
+      <button class="pBtn" id="btnAddLayer" data-i18n="addLayer">+ Add Layer</button>
+    </div>
+  </div>
+
+  <!-- AUDIO -->
+  <div class="pSec" id="secAudio">
+    <div class="pSecHead" data-sec="secAudioBody"><span data-i18n="audio">Audio</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secAudioBody">
+      <div class="pBtnRow">
+        <button class="pBtn" id="btnMic" data-i18n="microphone">🎤 Mic</button>
+        <label class="pBtn" data-i18n="audioFile">🎵 File<input type="file" id="audioFileInput" accept="audio/*" style="display:none"/></label>
+        <button class="pBtn" id="btnAudioStop" data-i18n="stopAudio">⏹ Stop</button>
+      </div>
+      <div id="audioBarWrap"></div>
+      <div class="pRow">
+        <span class="pLabel" style="margin:0">Bass</span><span class="pVal" id="valBass">0</span>
+        <span class="pLabel" style="margin:0;margin-left:8px">Mid</span><span class="pVal" id="valMid">0</span>
+        <span class="pLabel" style="margin:0;margin-left:8px">High</span><span class="pVal" id="valHigh">0</span>
+      </div>
+      <div class="pRow">
+        <span class="pLabel" style="margin:0" data-i18n="bpm">BPM</span><span class="pVal" id="valBPM">--</span>
+        <span class="pLabel" style="margin:0;margin-left:12px" data-i18n="beat">Beat</span><span class="pVal" id="valBeat">—</span>
+      </div>
+      <label class="pLabel" data-i18n="audioGain">Audio Gain</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderAudioGain" min="0" max="3" step="0.1" value="1"/><span class="pVal" id="valAudioGain">1.0</span></div>
+    </div>
+  </div>
+
+  <!-- FORCE FIELDS -->
+  <div class="pSec" id="secForce">
+    <div class="pSecHead" data-sec="secForceBody"><span data-i18n="forceFields">Force Fields</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secForceBody">
+      <div class="pRow">
+        <select class="pSelect" id="ffTypeSelect" style="width:auto;flex:1;">
+          <option value="attract">Attract</option>
+          <option value="repel">Repel</option>
+          <option value="vortex">Vortex</option>
+          <option value="gravity">Gravity</option>
+        </select>
+        <button class="pBtn" id="btnAddFF" data-i18n="addField">+ Add</button>
+      </div>
+      <label class="pCheck"><input type="checkbox" id="chkFFPulse"/><span data-i18n="pulsate">Pulsate</span></label>
+      <label class="pLabel" data-i18n="pulseSpeed">Pulse Speed</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderPulseSpeed" min="0.1" max="5" step="0.1" value="1"/><span class="pVal" id="valPulseSpeed">1.0</span></div>
+      <div id="ffList"></div>
+    </div>
+  </div>
+
+  <!-- EFFECTS -->
+  <div class="pSec" id="secEffects">
+    <div class="pSecHead" data-sec="secEffectsBody"><span data-i18n="effects">Effects</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secEffectsBody">
+      <label class="pLabel" data-i18n="trailFade">Trail Fade</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderTrailFade" min="0.01" max="1" step="0.01" value="0.08"/><span class="pVal" id="valTrailFade">0.08</span></div>
+      <label class="pCheck"><input type="checkbox" id="chkMotionBlur"/><span data-i18n="motionBlur">Motion Blur</span></label>
+      <label class="pCheck"><input type="checkbox" id="chkGlow" checked/><span data-i18n="glowBloom">Glow / Bloom</span></label>
+      <label class="pCheck"><input type="checkbox" id="chkConnections"/><span data-i18n="connections">Connections</span></label>
+      <label class="pLabel" data-i18n="connDist">Connection Distance</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderConnDist" min="10" max="200" step="5" value="60"/><span class="pVal" id="valConnDist">60</span></div>
+      <label class="pLabel" data-i18n="symmetry">Symmetry</label>
+      <select class="pSelect" id="selSymmetry">
+        <option value="0">None</option><option value="2">2x</option><option value="3">3x</option>
+        <option value="4">4x</option><option value="6">6x</option><option value="8">8x</option>
+      </select>
+      <label class="pCheck"><input type="checkbox" id="chkDepth3D"/><span data-i18n="depth3d">3D Depth Illusion</span></label>
+      <label class="pLabel" data-i18n="trailShape">Trail Shape</label>
+      <select class="pSelect" id="selTrailShape">
+        <option value="line">Line</option><option value="dot">Dot</option>
+        <option value="triangle">Triangle</option><option value="glow-dot">Glow Dot</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="pSec" id="secControls">
+    <div class="pSecHead" data-sec="secControlsBody"><span data-i18n="controls">Controls</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secControlsBody">
+      <label class="pLabel" data-i18n="particleCount">Particle Count</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderCount" min="500" max="30000" step="500" value="6000"/><span class="pVal" id="valCount">6000</span></div>
+      <label class="pLabel" data-i18n="speed">Speed</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderSpeed" min="0.1" max="5" step="0.1" value="1"/><span class="pVal" id="valSpeed">1.0</span></div>
+      <label class="pLabel" data-i18n="friction">Friction</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderFriction" min="0.9" max="1" step="0.002" value="0.97"/><span class="pVal" id="valFriction">0.97</span></div>
+      <label class="pLabel" data-i18n="turbulence">Turbulence</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderTurbulence" min="0" max="2" step="0.05" value="0.3"/><span class="pVal" id="valTurbulence">0.30</span></div>
+      <label class="pLabel" data-i18n="mouseForce">Mouse Force</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderMouseForce" min="0" max="500" step="10" value="100"/><span class="pVal" id="valMouseForce">100</span></div>
+    </div>
+  </div>
+
+  <!-- INTERACTION -->
+  <div class="pSec" id="secInteraction">
+    <div class="pSecHead" data-sec="secInteractionBody"><span data-i18n="interaction">Interaction</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secInteractionBody">
+      <label class="pLabel" data-i18n="mouseMode">Mouse Mode</label>
+      <select class="pSelect" id="selMouseMode">
+        <option value="push">Push</option><option value="attract">Attract</option>
+        <option value="swirl">Swirl</option><option value="paint">Paint</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- GAME MODES -->
+  <div class="pSec" id="secGame">
+    <div class="pSecHead" data-sec="secGameBody"><span data-i18n="gameModes">Game Modes</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secGameBody">
+      <div class="pBtnRow">
+        <button class="pBtn" data-game="painter" data-i18n="painter">🎨 Painter</button>
+        <button class="pBtn" data-game="sculptor" data-i18n="sculptor">🗿 Sculptor</button>
+        <button class="pBtn" data-game="battle" data-i18n="battle">⚔ Battle</button>
+        <button class="pBtn" data-game="colorwar" data-i18n="colorWar">🌈 Color War</button>
+      </div>
+      <button class="pBtn danger" id="btnExitGame" data-i18n="exitGame" style="display:none;">✕ Exit Game</button>
+    </div>
+  </div>
+
+  <!-- CUBE CONTROLS -->
+  <div class="pSec" id="secCube">
+    <div class="pSecHead" data-sec="secCubeBody"><span data-i18n="cubeControls">Cube Controls</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secCubeBody">
+      <label class="pLabel" data-i18n="cubePattern">Pattern</label>
+      <div class="pRow">
+        <select class="pSelect" id="selCubePattern" style="flex:1;"></select>
+        <span class="pVal" id="valPatternIdx">1/60</span>
+      </div>
+      <div class="pBtnRow">
+        <button class="pBtn" id="btnPrevPattern">◀</button>
+        <button class="pBtn" id="btnNextPattern">▶</button>
+        <button class="pBtn" id="btnRandPattern" data-i18n="random">Random</button>
+      </div>
+      <label class="pCheck"><input type="checkbox" id="chkAutoPattern"/><span data-i18n="autoSwitch">Auto Switch</span></label>
+      <label class="pLabel" data-i18n="autoInterval">Auto Interval (s)</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderAutoInterval" min="2" max="30" step="1" value="8"/><span class="pVal" id="valAutoInterval">8</span></div>
+      <label class="pCheck"><input type="checkbox" id="chkAutoSpin" checked/><span data-i18n="autoSpin">Auto Spin</span></label>
+      <label class="pCheck"><input type="checkbox" id="chkZenOrbit"/><span data-i18n="zenOrbit">Zen Orbit</span></label>
+      <label class="pCheck"><input type="checkbox" id="chkReflection" checked/><span data-i18n="reflection">Reflection</span></label>
+      <label class="pCheck"><input type="checkbox" id="chkFloorGrid"/><span data-i18n="floorGrid">Floor Grid</span></label>
+      <label class="pLabel" data-i18n="edgeGlow">Edge Glow</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderEdgeGlow" min="0" max="2" step="0.1" value="0.8"/><span class="pVal" id="valEdgeGlow">0.8</span></div>
+      <label class="pLabel" data-i18n="emissive">Emissive</label>
+      <div class="pRow"><input type="range" class="pSlider" id="sliderEmissive" min="0" max="1" step="0.05" value="0.3"/><span class="pVal" id="valEmissive">0.3</span></div>
+      <button class="pBtn" id="btnShatter" data-i18n="shatter">💥 Shatter</button>
+    </div>
+  </div>
+
+  <!-- ACTIONS -->
+  <div class="pSec" id="secActions">
+    <div class="pSecHead" data-sec="secActionsBody"><span data-i18n="actions">Actions</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secActionsBody">
+      <div class="pBtnRow">
+        <button class="pBtn" id="btnExport4K" data-i18n="export4k">📐 4K Export</button>
+        <button class="pBtn" id="btnExportSVG" data-i18n="exportSvg">🖼 SVG</button>
+        <button class="pBtn" id="btnExportGLSL" data-i18n="exportGlsl">🔧 GLSL</button>
+        <button class="pBtn" id="btnSaveConfig" data-i18n="saveConfig">💾 Save Config</button>
+        <label class="pBtn" data-i18n="loadConfig">📂 Load Config<input type="file" id="loadConfigInput" accept=".json" style="display:none"/></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHORTCUTS -->
+  <div class="pSec" id="secShortcuts">
+    <div class="pSecHead" data-sec="secShortcutsBody"><span data-i18n="shortcuts">Shortcuts</span><span class="arrow">▸</span></div>
+    <div class="pSecBody" id="secShortcutsBody">
+      <div style="font-size:10px;line-height:1.8;" id="shortcutList">
+        <div><kbd>Space</kbd> — <span data-i18n="scPause">Pause / Resume</span></div>
+        <div><kbd>F</kbd> — <span data-i18n="scFull">Fullscreen</span></div>
+        <div><kbd>S</kbd> — <span data-i18n="scScreen">Screenshot</span></div>
+        <div><kbd>R</kbd> — <span data-i18n="scRecord">Record</span></div>
+        <div><kbd>H</kbd> — <span data-i18n="scHelp">Help</span></div>
+        <div><kbd>P</kbd> — <span data-i18n="scPanel">Toggle Panel</span></div>
+        <div><kbd>L</kbd> — <span data-i18n="scLang">Language</span></div>
+        <div><kbd>1-3</kbd> — <span data-i18n="scMode">View Mode</span></div>
+        <div><kbd>N</kbd> — <span data-i18n="scNextPat">Next Pattern</span></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end sidePanel -->
+
+<!-- ===== GAME HUD ===== -->
+<div id="gameHUD">
+  <div id="gameHUDTitle"></div>
+  <div id="gameHUDInfo"></div>
+  <div id="gameHUDBar"><div id="gameHUDBarFill"></div></div>
+</div>
+
+<!-- ===== TOAST ===== -->
 <div id="toast"></div>
 
-<!-- Rec Progress -->
-<div class="recProg" id="recProg">
-    🔴 <span id="recTimer">00:00</span> / <span id="recTotal">00:10</span>
-    <div style="width:100%;height:3px;background:rgba(255,255,255,.1);border-radius:2px;margin-top:3px">
-        <div id="recBar" style="height:100%;background:var(--d);border-radius:2px;transition:width .5s;width:0%"></div>
-    </div>
+<!-- ===== RECORDING BAR ===== -->
+<div id="recBar">
+  <span id="recDot"></span>
+  <span id="recTime">00:00</span>
+  <div id="recProgress"><div id="recProgressFill"></div></div>
+  <button class="topBtn danger" id="btnRecStop" data-i18n="stopRec">Stop</button>
 </div>
 
-<!-- Help Modal -->
-<div class="modalOv" id="helpModal">
-    <div class="modalBox">
-        <div class="modalHdr">
-            <div class="modalTitle" id="helpTitle">🚀</div>
-            <div class="modalClose" onclick="closeHelp()">✕</div>
-        </div>
-        <div class="modalBody" id="helpBody"></div>
-        <div class="modalFoot">
-            <label><input type="checkbox" onchange="try{localStorage.setItem('xnh',this.checked?'1':'0')}catch(e){}"><span data-t="dont_show">Don't show again</span></label>
-            <button class="btn btnMain" style="width:auto;padding:7px 20px" onclick="closeHelp()" data-t="ok_btn">OK</button>
-        </div>
+<!-- ===== HELP MODAL ===== -->
+<div class="modalOverlay" id="helpModal">
+  <div class="modalBox">
+    <button class="modalClose" id="helpClose">&times;</button>
+    <div class="modalTitle" data-i18n="helpTitle">Welcome to Xoretex Xhaos Cube</div>
+    <div class="modalBody" id="helpBody"></div>
+    <div class="helpDontShow">
+      <input type="checkbox" id="helpDontShowChk"/>
+      <label for="helpDontShowChk" data-i18n="dontShowAgain">Don't show on startup</label>
     </div>
+  </div>
 </div>
 
-<!-- SVG Modal -->
-<div class="modalOv" id="svgModal">
-    <div class="modalBox">
-        <div class="modalHdr"><div class="modalTitle">📐 SVG</div><div class="modalClose" onclick="document.getElementById('svgModal').classList.remove('active')">✕</div></div>
-        <div class="modalBody"><textarea id="svgOutput" style="width:100%;height:280px;background:#000;color:var(--a);border:1px solid #333;border-radius:7px;padding:10px;font-size:.5rem;font-family:var(--f)" readonly></textarea></div>
-        <div class="modalFoot"><button class="btn btnOut" onclick="navigator.clipboard.writeText(document.getElementById('svgOutput').value);toast('📋!')">📋</button><button class="btn btnMain" style="width:auto;padding:7px 18px;margin-left:7px" onclick="downloadSVG()">💾</button></div>
+<!-- ===== SVG MODAL ===== -->
+<div class="modalOverlay" id="svgModal">
+  <div class="modalBox">
+    <button class="modalClose" id="svgClose">&times;</button>
+    <div class="modalTitle" data-i18n="svgExportTitle">SVG Export</div>
+    <div class="modalBody"><pre id="svgOutput" style="max-height:300px;overflow:auto;"></pre></div>
+    <div class="pBtnRow" style="margin-top:8px;">
+      <button class="pBtn" id="btnSvgCopy" data-i18n="copy">Copy</button>
+      <button class="pBtn" id="btnSvgDownload" data-i18n="download">Download</button>
     </div>
+  </div>
 </div>
 
-<!-- GLSL Modal -->
-<div class="modalOv" id="glslModal">
-    <div class="modalBox">
-        <div class="modalHdr"><div class="modalTitle">🖥️ GLSL</div><div class="modalClose" onclick="document.getElementById('glslModal').classList.remove('active')">✕</div></div>
-        <div class="modalBody"><textarea id="glslOutput" style="width:100%;height:280px;background:#000;color:var(--a3);border:1px solid #333;border-radius:7px;padding:10px;font-size:.5rem;font-family:var(--f)" readonly></textarea><div style="font-size:.45rem;opacity:.25;margin-top:4px">→ <a href="https://shadertoy.com/new" target="_blank" style="color:var(--a2)">Shadertoy</a></div></div>
-        <div class="modalFoot"><button class="btn btnOut" onclick="navigator.clipboard.writeText(document.getElementById('glslOutput').value);toast('📋!')">📋</button></div>
+<!-- ===== GLSL MODAL ===== -->
+<div class="modalOverlay" id="glslModal">
+  <div class="modalBox">
+    <button class="modalClose" id="glslClose">&times;</button>
+    <div class="modalTitle" data-i18n="glslExportTitle">GLSL Approximation</div>
+    <div class="modalBody"><pre id="glslOutput" style="max-height:300px;overflow:auto;"></pre></div>
+    <div class="pBtnRow" style="margin-top:8px;">
+      <button class="pBtn" id="btnGlslCopy" data-i18n="copy">Copy</button>
     </div>
+  </div>
 </div>
 
-<!-- Load both engines -->
+<!-- ===== FPS ===== -->
+<div id="fpsDisplay">FPS: --</div>
+
+<!-- ===== ERROR OVERLAY ===== -->
+<div id="errorOverlay"></div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="engine2d.js"></script>
 <script src="cube3d.js"></script>
-
 </body>
 </html>

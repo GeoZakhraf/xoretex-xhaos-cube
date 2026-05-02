@@ -1,2075 +1,2069 @@
-// ═══════════════════════════════════════════════════════════
-// XORETEX XHAOS LIVE v7.0 — COMPLETE ENGINE
-// All features: i18n, WebGL, Games, SVG, GLSL, Audio 32-band,
-// Beat Detection, Palettes, Force Fields, Physics, etc.
-// ═══════════════════════════════════════════════════════════
+/**
+ * Xoretex Xhaos Cube — engine2d.js
+ * 2D Particle Flow Engine, Localization, Panel Logic,
+ * Force Fields, Audio, Game Modes, Export Tools
+ * Part 1: Core setup, localization, panel, presets, snippets
+ */
 
-// ═══════════ CANVAS REFERENCES ═══════════
-const mainCan = document.getElementById('mainCan');
-const ctx = mainCan.getContext('2d');
-const bgCan = document.getElementById('bgCan');
-const bgCtx = bgCan.getContext('2d');
-const glowCan = document.getElementById('glowCan');
-const glowCtx = glowCan.getContext('2d');
-const connCan = document.getElementById('connCan');
-const connCtx = connCan.getContext('2d');
-const glCan = document.getElementById('glCan');
+'use strict';
 
-// ═══════════ GLOBAL STATE ═══════════
-let W, H, time = 0;
-let paused = false;
-let panelOpen = true;
-let layerCounter = 0;
-let placingFieldType = null;
-let focusedLayerIndex = -1;
-let motionBlurEnabled = false;
-let fieldPulseEnabled = false;
-let currentLang = 'en';
-let glowFrameCount = 0;
-let draggingField = null;
-let sculptorDrawing = false;
+// ============================================================
+// GLOBAL ERROR REPORTER
+// ============================================================
+function reportError(msg, err) {
+  const el = document.getElementById('errorOverlay');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML += '<div style="margin-bottom:6px;"><b>⚠</b> ' + msg +
+    (err ? '<br><span style="color:#f88">' + String(err) + '</span>' : '') + '</div>';
+  console.error('[XoretexEngine2D]', msg, err || '');
+}
 
-// Particle & layer arrays
-let particles = [];
-let layers = [];
-let forceFields = [];
-let stars = [];
-let obstacles = [];
-
-// Pointer state
-const pointer = { x: -9999, y: -9999, on: false, repel: false };
-
-// FPS tracking
-let fpsCounter = 0;
-let fpsLastTime = performance.now();
-let fpsValue = 60;
-
-// Audio state
-let audioCtx = null;
-let audioAnalyser = null;
-let audioDataArray = null;
-let audioActive = false;
-let audioElement = null;
-let audioFreqs = { bass: 0, mid: 0, high: 0, overall: 0 };
-let audioBands = new Float32Array(32);
-let beatDetected = false;
-let prevBassEnergy = 0;
-let bpm = 0;
-let beatTimes = [];
-
-// Recording state
-let mediaRecorder = null;
-let isRecording = false;
-let recordChunks = [];
-let recordFormat = 'webm';
-let recordTimerInterval = null;
-let recordStartTime = 0;
-
-// WebGL state
-let glMode = false;
-let gl = null;
-let glProgram = null;
-let glBuffer = null;
-let glReady = false;
-
-// Game state
-let gameMode = null;
-let paintCanvas = null;
-let paintCtx = null;
-let colorWarData = null;
-
-// ═══════════ CONFIG ═══════════
-const config = {
-    trail: 0.08,
-    speed: 1.5,
-    particleCount: 3000,
-    lineWidth: 1.2,
-    timeSpeed: 1.0,
-    turbulence: 0,
-    blendMode: 'lighter',
-    mouseForce: 2.0,
-    mouseRadius: 180,
-    glowIntensity: 0.6,
-    glowRadius: 8,
-    audioSens: 1.0,
-    audioBass: 0.5,
-    colorCycle: 0,
-    depth3d: 0,
-    connections: 0,
-    trailShape: 'line',
-    symmetry: 1,
-    recDuration: 10,
-    friction: 0.94,
-    pulseSpeed: 1.0
+// ============================================================
+// LOCALIZATION
+// ============================================================
+const TRANSLATIONS = {
+  en: {
+    presets: 'Presets', liveInjection: 'Live Injection', formulaCode: 'Formula Code',
+    apply: 'Apply', valid: 'Valid', invalid: 'Invalid', snippetLibrary: 'Snippet Library',
+    layers: 'Layers', addLayer: '+ Add Layer', audio: 'Audio', microphone: '🎤 Mic',
+    audioFile: '🎵 File', stopAudio: '⏹ Stop', bpm: 'BPM', beat: 'Beat', audioGain: 'Audio Gain',
+    forceFields: 'Force Fields', addField: '+ Add', pulsate: 'Pulsate', pulseSpeed: 'Pulse Speed',
+    effects: 'Effects', trailFade: 'Trail Fade', motionBlur: 'Motion Blur', glowBloom: 'Glow / Bloom',
+    connections: 'Connections', connDist: 'Connection Distance', symmetry: 'Symmetry',
+    depth3d: '3D Depth Illusion', trailShape: 'Trail Shape', controls: 'Controls',
+    particleCount: 'Particle Count', speed: 'Speed', friction: 'Friction', turbulence: 'Turbulence',
+    mouseForce: 'Mouse Force', interaction: 'Interaction', mouseMode: 'Mouse Mode',
+    gameModes: 'Game Modes', painter: '🎨 Painter', sculptor: '🗿 Sculptor', battle: '⚔ Battle',
+    colorWar: '🌈 Color War', exitGame: '✕ Exit Game', cubeControls: 'Cube Controls',
+    cubePattern: 'Pattern', random: 'Random', autoSwitch: 'Auto Switch',
+    autoInterval: 'Auto Interval (s)', autoSpin: 'Auto Spin', zenOrbit: 'Zen Orbit',
+    reflection: 'Reflection', floorGrid: 'Floor Grid', edgeGlow: 'Edge Glow',
+    emissive: 'Emissive', shatter: '💥 Shatter', actions: 'Actions', export4k: '📐 4K Export',
+    exportSvg: '🖼 SVG', exportGlsl: '🔧 GLSL', saveConfig: '💾 Save Config',
+    loadConfig: '📂 Load Config', shortcuts: 'Shortcuts', scPause: 'Pause / Resume',
+    scFull: 'Fullscreen', scScreen: 'Screenshot', scRecord: 'Record', scHelp: 'Help',
+    scPanel: 'Toggle Panel', scLang: 'Language', scMode: 'View Mode', scNextPat: 'Next Pattern',
+    helpTitle: 'Welcome to Xoretex Xhaos Cube',
+    svgExportTitle: 'SVG Export', glslExportTitle: 'GLSL Approximation',
+    copy: 'Copy', download: 'Download', dontShowAgain: "Don't show on startup",
+    stopRec: 'Stop', layerColor: 'Color', layerPalette: 'Palette', layerOpacity: 'Opacity',
+    layerWeight: 'Weight', layerEquation: 'Equation', removeLayer: 'Remove',
+    removeField: 'Remove', noAudio: 'No audio source', toastCopied: 'Copied!',
+    toastSaved: 'Config saved!', toastLoaded: 'Config loaded!',
+    toastRecStart: 'Recording started', toastRecStop: 'Recording stopped',
+    toastScreenshot: 'Screenshot saved', toast4K: '4K screenshot saved',
+    toastShatter: 'Shatter!', paused: 'Paused', resumed: 'Resumed',
+    helpStep1Title: '1. View Modes', helpStep1: 'Use the BOTH / 2D Flow / 3D Cube tabs to switch between the particle engine and the 3D cube renderer.',
+    helpStep2Title: '2. Live Formula Injection', helpStep2: 'Type any JavaScript expression into the Formula Code box. Variables: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio. The result steers particle velocity.',
+    helpStep3Title: '3. Layers', helpStep3: 'Add multiple formula layers. Each has its own color, palette, opacity, and weight. Click a layer title to focus it.',
+    helpStep4Title: '4. Force Fields', helpStep4: 'Add attract, repel, vortex, or gravity fields. Drag their markers on the canvas. Enable Pulsate for animated strength.',
+    helpStep5Title: '5. Audio', helpStep5: 'Click Mic to use your microphone or load an audio file. The engine reacts to bass, mid, and high frequencies.',
+    helpStep6Title: '6. Game Modes', helpStep6: 'Try Painter, Sculptor, Battle, or Color War modes. Exit with the Exit Game button.',
+    helpStep7Title: '7. Export', helpStep7: 'Export PNG screenshots, 4K images, SVG paths, GLSL shaders, WebM video, or save/load the full config as JSON.',
+  },
+  ar: {
+    presets: 'الإعدادات المسبقة', liveInjection: 'الحقن المباشر', formulaCode: 'كود المعادلة',
+    apply: 'تطبيق', valid: 'صالح', invalid: 'غير صالح', snippetLibrary: 'مكتبة المقتطفات',
+    layers: 'الطبقات', addLayer: '+ إضافة طبقة', audio: 'الصوت', microphone: '🎤 ميكروفون',
+    audioFile: '🎵 ملف', stopAudio: '⏹ إيقاف', bpm: 'النبض/د', beat: 'الإيقاع',
+    audioGain: 'كسب الصوت', forceFields: 'حقول القوة', addField: '+ إضافة',
+    pulsate: 'نبض', pulseSpeed: 'سرعة النبض', effects: 'المؤثرات', trailFade: 'تلاشي الأثر',
+    motionBlur: 'ضبابية الحركة', glowBloom: 'توهج / إشعاع', connections: 'التوصيلات',
+    connDist: 'مسافة التوصيل', symmetry: 'التناسق', depth3d: 'وهم العمق ثلاثي الأبعاد',
+    trailShape: 'شكل الأثر', controls: 'عناصر التحكم', particleCount: 'عدد الجسيمات',
+    speed: 'السرعة', friction: 'الاحتكاك', turbulence: 'الاضطراب', mouseForce: 'قوة الماوس',
+    interaction: 'التفاعل', mouseMode: 'وضع الماوس', gameModes: 'أوضاع اللعبة',
+    painter: '🎨 رسام', sculptor: '🗿 نحات', battle: '⚔ معركة', colorWar: '🌈 حرب ألوان',
+    exitGame: '✕ الخروج من اللعبة', cubeControls: 'تحكم المكعب', cubePattern: 'النمط',
+    random: 'عشوائي', autoSwitch: 'تبديل تلقائي', autoInterval: 'فترة التبديل (ث)',
+    autoSpin: 'دوران تلقائي', zenOrbit: 'مدار زن', reflection: 'الانعكاس',
+    floorGrid: 'شبكة الأرضية', edgeGlow: 'توهج الحواف', emissive: 'الإشعاع',
+    shatter: '💥 تحطيم', actions: 'الإجراءات', export4k: '📐 تصدير 4K',
+    exportSvg: '🖼 SVG', exportGlsl: '🔧 GLSL', saveConfig: '💾 حفظ الإعدادات',
+    loadConfig: '📂 تحميل الإعدادات', shortcuts: 'الاختصارات', scPause: 'إيقاف / استئناف',
+    scFull: 'ملء الشاشة', scScreen: 'لقطة شاشة', scRecord: 'تسجيل', scHelp: 'مساعدة',
+    scPanel: 'إظهار/إخفاء اللوحة', scLang: 'اللغة', scMode: 'وضع العرض',
+    scNextPat: 'النمط التالي', helpTitle: 'مرحباً بك في Xoretex Xhaos Cube',
+    svgExportTitle: 'تصدير SVG', glslExportTitle: 'تقريب GLSL',
+    copy: 'نسخ', download: 'تحميل', dontShowAgain: 'عدم الإظهار عند البدء',
+    stopRec: 'إيقاف', layerColor: 'اللون', layerPalette: 'اللوحة', layerOpacity: 'الشفافية',
+    layerWeight: 'الوزن', layerEquation: 'المعادلة', removeLayer: 'إزالة',
+    removeField: 'إزالة', noAudio: 'لا مصدر صوتي', toastCopied: 'تم النسخ!',
+    toastSaved: 'تم حفظ الإعدادات!', toastLoaded: 'تم تحميل الإعدادات!',
+    toastRecStart: 'بدأ التسجيل', toastRecStop: 'توقف التسجيل',
+    toastScreenshot: 'تم حفظ الصورة', toast4K: 'تم حفظ صورة 4K',
+    toastShatter: 'تحطيم!', paused: 'متوقف', resumed: 'استُؤنف',
+    helpStep1Title: '١. أوضاع العرض', helpStep1: 'استخدم أزرار BOTH / 2D Flow / 3D Cube للتبديل بين محرك الجسيمات ومحرك المكعب ثلاثي الأبعاد.',
+    helpStep2Title: '٢. الحقن المباشر للمعادلة', helpStep2: 'اكتب أي تعبير JavaScript في خانة كود المعادلة. المتغيرات المتاحة: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio.',
+    helpStep3Title: '٣. الطبقات', helpStep3: 'أضف طبقات معادلة متعددة. لكل طبقة لونها ولوحتها وشفافيتها ووزنها. انقر على عنوان الطبقة لتركيزها.',
+    helpStep4Title: '٤. حقول القوة', helpStep4: 'أضف حقول جذب أو طرد أو دوامة أو جاذبية. اسحب علاماتها على اللوحة. فعّل النبض للقوة المتحركة.',
+    helpStep5Title: '٥. الصوت', helpStep5: 'انقر على الميكروفون لاستخدام الميكروفون أو حمّل ملف صوتي. يتفاعل المحرك مع الترددات العالية والمتوسطة والمنخفضة.',
+    helpStep6Title: '٦. أوضاع اللعبة', helpStep6: 'جرّب أوضاع الرسام والنحات والمعركة وحرب الألوان. اخرج بزر الخروج من اللعبة.',
+    helpStep7Title: '٧. التصدير', helpStep7: 'صدّر صور PNG أو صور 4K أو مسارات SVG أو شيدرز GLSL أو فيديو WebM أو احفظ وحمّل الإعدادات بصيغة JSON.',
+  }
 };
 
-// ═══════════ CONSTANTS ═══════════
-const LAYER_COLORS = [
-    '#00ff88', '#00ccff', '#ff00aa', '#ffaa00',
-    '#aa44ff', '#ff4466', '#44ffcc', '#ffff44'
-];
+let currentLang = localStorage.getItem('xoretex_lang') || 'en';
 
-const PALETTES = {
-    mono:   (c) => [c, c, c, c],
-    cool:   () => ['#00ff88', '#00ccff', '#4488ff', '#aa44ff'],
-    warm:   () => ['#ff4400', '#ffaa00', '#ffff44', '#ff0066'],
-    neon:   () => ['#00ffff', '#ff00ff', '#ffff00', '#00ff88'],
-    ocean:  () => ['#0044ff', '#0088ff', '#00ccff', '#00ffcc'],
-    fire:   () => ['#ff0000', '#ff4400', '#ffaa00', '#ffff00'],
-    sunset: () => ['#ff4466', '#ff8844', '#ffcc22', '#aa44ff'],
-    forest: () => ['#006633', '#00aa44', '#44cc66', '#88ff88']
-};
-
-const FORMULA_LIBRARY = [
-    { name: '🌀 Swirly Nebula',   code: 'return atan2(y-cy,x-cx)+sin(r*0.02-t*2)*1.5;' },
-    { name: '📐 Grid Wave',       code: 'return sin(x*0.02)*cos(y*0.02)*PI+t;' },
-    { name: '🌊 Sine Ocean',      code: 'return sin(x*0.005+t)*0.8+PI/2;' },
-    { name: '🔮 Crystal Lattice', code: 'return sin(x*0.015+y*0.015+t)*PI*2;' },
-    { name: '🧬 DNA Helix',       code: 'return sin(y*0.02+t*2)*2+PI/2;' },
-    { name: '💫 Spiral Arms',     code: 'return atan2(y-cy,x-cx)+0.5/Math.max(r*0.01,0.1)+t*0.3;' },
-    { name: '🌪️ Turbulent Flow',  code: 'return noise(x*0.006+t,y*0.006)*PI*2+sin(r*0.01)*0.5;' },
-    { name: '⚡ Electric Arc',    code: 'return atan2(sin(y*0.02+t*3),cos(x*0.02-t*2));' },
-    { name: '🪐 Orbital Ring',    code: 'var a=atan2(y-cy,x-cx);return a+PI/2+sin(r*0.03-t*2)*1.5;' },
-    { name: '🌸 Flower Bloom',    code: 'var a=atan2(y-cy,x-cx);return a+sin(a*5+t)*0.5+sin(r*0.02)*0.3;' }
-];
-
-// ═══════════ NOISE GENERATOR ═══════════
-class NoiseGenerator {
-    constructor() {
-        this.perm = new Uint8Array(512);
-        const base = new Uint8Array(256);
-        for (let i = 0; i < 256; i++) base[i] = i;
-        for (let i = 255; i > 0; i--) {
-            const j = (Math.random() * (i + 1)) | 0;
-            [base[i], base[j]] = [base[j], base[i]];
-        }
-        for (let i = 0; i < 512; i++) this.perm[i] = base[i & 255];
-    }
-    fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-    lerp(t, a, b) { return a + t * (b - a); }
-    grad(hash, x, y) {
-        return ((hash & 1) ? -x : x) + ((hash & 2) ? -y : y);
-    }
-    noise2D(x, y) {
-        const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
-        x -= Math.floor(x);
-        y -= Math.floor(y);
-        const u = this.fade(x), v = this.fade(y);
-        const A = this.perm[X] + Y, B = this.perm[X + 1] + Y;
-        return this.lerp(v,
-            this.lerp(u, this.grad(this.perm[A], x, y), this.grad(this.perm[B], x - 1, y)),
-            this.lerp(u, this.grad(this.perm[A + 1], x, y - 1), this.grad(this.perm[B + 1], x - 1, y - 1))
-        );
-    }
-}
-const noise = new NoiseGenerator();
-
-// ═══════════ COLOR UTILITIES ═══════════
-function hexToRgb(hex) {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return m ? {
-        r: parseInt(m[1], 16),
-        g: parseInt(m[2], 16),
-        b: parseInt(m[3], 16)
-    } : { r: 0, g: 255, b: 136 };
+function t(key) {
+  return (TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][key]) ||
+         (TRANSLATIONS.en[key]) || key;
 }
 
-function hslToHex(h, s, l) {
-    s /= 100; l /= 100;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => {
-        const k = (n + h / 30) % 12;
-        return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    };
-    return `#${[f(0), f(8), f(4)].map(x =>
-        Math.round(x * 255).toString(16).padStart(2, '0')
-    ).join('')}`;
-}
-
-// ═══════════ COMPLETE i18n SYSTEM ═══════════
-const LANG = {
-    en: {
-        brand: "XORETEX XHAOS",
-        subtitle: "LIVE ENGINE v7.0",
-        fps: "FPS",
-        particles_lbl: "PTS",
-        layers_lbl: "LYR",
-        time_lbl: "TIME",
-        fields_lbl: "FLD",
-        presets_title: "⚡ PRESETS",
-        select_preset: "— Select Preset —",
-        injection_title: "💉 LIVE INJECTION",
-        formula_lib: "📚 Formula Library",
-        layers_title: "📐 LAYERS",
-        add_layer: "+ Add Layer",
-        apply_btn: "▶ APPLY",
-        audio_title: "🎵 AUDIO",
-        mic_btn: "🎤 Mic",
-        file_btn: "📁 File",
-        sensitivity: "Sensitivity",
-        bass_speed: "Bass → Speed",
-        fields_title: "🧲 FORCE FIELDS",
-        pulsating: "Pulsating",
-        pulse_speed: "Pulse Speed",
-        effects_title: "🪞 EFFECTS",
-        color_cycle: "Color Cycle",
-        depth_3d: "3D Depth",
-        connections: "Connections",
-        trail_shape: "Trail Shape",
-        shape_line: "Line",
-        shape_dot: "Dot",
-        shape_tri: "Triangle",
-        shape_glow: "Glow",
-        motion_blur: "Motion Blur",
-        controls_title: "🎛️ CONTROLS",
-        trail_fade: "Trail",
-        speed: "Speed",
-        particle_count: "Particles",
-        line_width: "Line Width",
-        time_speed: "Time Speed",
-        turbulence: "Turbulence",
-        friction: "Friction",
-        glow: "Glow",
-        glow_radius: "Glow Radius",
-        interact_title: "🖱️ INTERACT",
-        force: "Force",
-        radius: "Radius",
-        blend: "Blend",
-        games_title: "🎮 GAME MODES",
-        game_painter: "Painter",
-        game_sculptor: "Sculptor",
-        game_battle: "Battle",
-        game_colorwar: "Colors",
-        actions_title: "⚙️ ACTIONS",
-        rec_duration: "Rec (sec)",
-        act_shot: "Shot",
-        act_4k: "4K",
-        act_rec: "Rec",
-        act_pause: "Pause",
-        act_svg: "SVG",
-        act_glsl: "GLSL",
-        act_save: "Save",
-        act_load: "Load",
-        act_random: "Random",
-        act_clear: "Clear",
-        keys_title: "⌨️ SHORTCUTS",
-        dont_show: "Don't show again",
-        ok_btn: "OK",
-        layer_label: "LAYER",
-        pal_mono: "🎨 Mono",
-        pal_cool: "❄️ Cool",
-        pal_warm: "🔥 Warm",
-        pal_neon: "💡 Neon",
-        pal_ocean: "🌊 Ocean",
-        pal_fire: "🔥 Fire",
-        pal_sunset: "🌅 Sunset",
-        pal_forest: "🌲 Forest",
-        help_title: "🚀 Welcome to Xoretex Xhaos Live",
-        help_steps: [
-            { t: "Choose a Preset", d: "Pick from ⚡ PRESETS or click 📚 Formula Library for ready-made equations." },
-            { t: "Multi-Layer System", d: "Add layers with unique colors and palettes. Click the layer header to focus its particles." },
-            { t: "Physics Engine", d: "Control Friction, Particle Mass, and Pulsating Force Fields for realistic motion." },
-            { t: "Game Modes", d: "🖌️ Painter — draw with particles. 🗿 Sculptor — place obstacles. ⚔️ Battle — two forces compete. 🎨 Color War — territory control." },
-            { t: "WebGL Mode", d: "Press G to switch to GPU rendering. Supports 500K+ particles at 60fps!" },
-            { t: "SVG & Shader Export", d: "Export your creation as SVG vector art or GLSL shader code for Shadertoy." },
-            { t: "Audio Reactive", d: "Enable mic or load audio. 32 frequency bands, beat detection, and auto BPM." }
-        ],
-        t_ready: "⚡ Xoretex v7 Ready!",
-        t_paused: "⏸ Paused",
-        t_resumed: "▶ Playing",
-        t_cleared: "🗑️ Canvas Cleared",
-        t_random: "🎲 Randomized!",
-        t_screenshot: "📷 Screenshot Saved!",
-        t_4k: "🖼️ 4K Exported!",
-        t_cloned: "📋 Layer Cloned",
-        t_rec_start: "🔴 Recording...",
-        t_rec_saved: "🎥 Video Saved!",
-        t_saved: "💾 Config Saved!",
-        t_loaded: "📂 Config Loaded!",
-        t_mic: "🎤 Microphone Connected!",
-        t_err: "❌ Error: ",
-        t_lang: "🌐 Switched to English",
-        t_field_place: "🧲 Click canvas to place: ",
-        t_fields_cleared: "🧲 All Fields Cleared",
-        t_focus_on: "🎯 Layer Focused",
-        t_focus_off: "🎯 Focus Cleared",
-        t_webgl_on: "🖥️ WebGL Mode ON",
-        t_webgl_off: "🖥️ Canvas 2D Mode",
-        t_svg: "📐 SVG Exported!",
-        t_glsl: "🖥️ Shader Generated!",
-        gl_painter: "🖌️ PARTICLE PAINTER",
-        gl_sculptor: "🗿 FLOW SCULPTOR",
-        gl_battle: "⚔️ EQUATION BATTLE",
-        gl_colorwar: "🎨 COLOR WAR"
-    },
-    ar: {
-        brand: "زوريتكس كايوس",
-        subtitle: "المحرك المباشر v7.0",
-        fps: "إطار/ث",
-        particles_lbl: "جسيمات",
-        layers_lbl: "طبقات",
-        time_lbl: "الوقت",
-        fields_lbl: "حقول",
-        presets_title: "⚡ القوالب الجاهزة",
-        select_preset: "— اختر قالب —",
-        injection_title: "💉 الحقن المباشر",
-        formula_lib: "📚 مكتبة المعادلات",
-        layers_title: "📐 الطبقات",
-        add_layer: "+ إضافة طبقة",
-        apply_btn: "▶ تطبيق",
-        audio_title: "🎵 الصوت التفاعلي",
-        mic_btn: "🎤 مايكروفون",
-        file_btn: "📁 ملف صوتي",
-        sensitivity: "الحساسية",
-        bass_speed: "البيس ← السرعة",
-        fields_title: "🧲 حقول القوى",
-        pulsating: "نابض",
-        pulse_speed: "سرعة النبض",
-        effects_title: "🪞 المؤثرات البصرية",
-        color_cycle: "دوران الألوان",
-        depth_3d: "عمق ثلاثي الأبعاد",
-        connections: "الروابط",
-        trail_shape: "شكل المسار",
-        shape_line: "خط",
-        shape_dot: "نقطة",
-        shape_tri: "مثلث",
-        shape_glow: "توهج",
-        motion_blur: "ضبابية الحركة",
-        controls_title: "🎛️ أدوات التحكم",
-        trail_fade: "التلاشي",
-        speed: "السرعة",
-        particle_count: "عدد الجسيمات",
-        line_width: "عرض الخط",
-        time_speed: "سرعة الزمن",
-        turbulence: "الاضطراب",
-        friction: "الاحتكاك",
-        glow: "التوهج",
-        glow_radius: "نصف قطر التوهج",
-        interact_title: "🖱️ التفاعل",
-        force: "القوة",
-        radius: "نصف القطر",
-        blend: "وضع الدمج",
-        games_title: "🎮 أوضاع اللعب",
-        game_painter: "رسّام",
-        game_sculptor: "نحّات",
-        game_battle: "معركة",
-        game_colorwar: "حرب ألوان",
-        actions_title: "⚙️ الإجراءات والتصدير",
-        rec_duration: "مدة التسجيل (ث)",
-        act_shot: "لقطة",
-        act_4k: "4K",
-        act_rec: "تسجيل",
-        act_pause: "إيقاف",
-        act_svg: "SVG",
-        act_glsl: "شيدر",
-        act_save: "حفظ",
-        act_load: "تحميل",
-        act_random: "عشوائي",
-        act_clear: "مسح",
-        keys_title: "⌨️ اختصارات لوحة المفاتيح",
-        dont_show: "لا تظهر مرة أخرى",
-        ok_btn: "حسناً",
-        layer_label: "طبقة",
-        pal_mono: "🎨 أحادي",
-        pal_cool: "❄️ بارد",
-        pal_warm: "🔥 دافئ",
-        pal_neon: "💡 نيون",
-        pal_ocean: "🌊 محيط",
-        pal_fire: "🔥 نار",
-        pal_sunset: "🌅 غروب",
-        pal_forest: "🌲 غابة",
-        help_title: "🚀 مرحباً بك في زوريتكس كايوس لايف",
-        help_steps: [
-            { t: "اختر قالباً جاهزاً", d: "اختر من ⚡ القوالب الجاهزة أو انقر 📚 مكتبة المعادلات لمعادلات جاهزة." },
-            { t: "نظام الطبقات المتعددة", d: "أضف طبقات بألوان ولوحات فريدة. انقر عنوان الطبقة لتركيز جسيماتها." },
-            { t: "محرك الفيزياء", d: "تحكم بالاحتكاك وكتلة الجسيمات وحقول القوى النابضة لحركة واقعية." },
-            { t: "أوضاع اللعب", d: "🖌️ رسّام — ارسم بالجسيمات. 🗿 نحّات — ضع عوائق. ⚔️ معركة — قوتان تتصارعان. 🎨 حرب ألوان — سيطرة على المناطق." },
-            { t: "وضع WebGL", d: "اضغط G للتبديل لعرض GPU. يدعم أكثر من 500 ألف جسيم!" },
-            { t: "تصدير SVG وشيدر", d: "صدّر إبداعك كرسم SVG متجه أو كود GLSL لموقع Shadertoy." },
-            { t: "التفاعل الصوتي", d: "فعّل المايك أو حمّل ملف صوتي. 32 نطاق تردد مع كشف الإيقاع وقياس BPM تلقائياً." }
-        ],
-        t_ready: "⚡ زوريتكس كايوس جاهز!",
-        t_paused: "⏸ إيقاف مؤقت",
-        t_resumed: "▶ تشغيل",
-        t_cleared: "🗑️ تم مسح الشاشة",
-        t_random: "🎲 تم التعشير!",
-        t_screenshot: "📷 تم حفظ اللقطة!",
-        t_4k: "🖼️ تم تصدير 4K!",
-        t_cloned: "📋 تم نسخ الطبقة",
-        t_rec_start: "🔴 بدأ التسجيل...",
-        t_rec_saved: "🎥 تم حفظ الفيديو!",
-        t_saved: "💾 تم حفظ الإعدادات!",
-        t_loaded: "📂 تم تحميل الإعدادات!",
-        t_mic: "🎤 تم توصيل المايكروفون!",
-        t_err: "❌ خطأ: ",
-        t_lang: "🌐 تم التبديل للعربية",
-        t_field_place: "🧲 انقر على الشاشة لوضع: ",
-        t_fields_cleared: "🧲 تم مسح جميع الحقول",
-        t_focus_on: "🎯 تم تركيز الطبقة",
-        t_focus_off: "🎯 تم إلغاء التركيز",
-        t_webgl_on: "🖥️ وضع WebGL مفعّل",
-        t_webgl_off: "🖥️ وضع Canvas 2D",
-        t_svg: "📐 تم تصدير SVG!",
-        t_glsl: "🖥️ تم توليد الشيدر!",
-        gl_painter: "🖌️ الرسّام بالجسيمات",
-        gl_sculptor: "🗿 نحت التدفق",
-        gl_battle: "⚔️ معركة المعادلات",
-        gl_colorwar: "🎨 حرب الألوان"
+function applyLocalization() {
+  const html = document.documentElement;
+  html.setAttribute('lang', currentLang);
+  html.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const val = t(key);
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      el.placeholder = val;
+    } else {
+      el.textContent = val;
     }
-};
-
-function T(key) {
-    return LANG[currentLang]?.[key] || LANG.en[key] || key;
-}
-
-function applyLanguage() {
-    const isAr = currentLang === 'ar';
-    document.documentElement.dir = isAr ? 'rtl' : 'ltr';
-    document.documentElement.lang = isAr ? 'ar' : 'en';
-
-    // Update all data-t elements
-    document.querySelectorAll('[data-t]').forEach(el => {
-        const key = el.getAttribute('data-t');
-        const val = T(key);
-        if (val && typeof val === 'string') {
-            if (el.tagName === 'OPTION') el.textContent = val;
-            else el.textContent = val;
-        }
-    });
-
-    // Update layer names
-    layers.forEach((layer, idx) => {
-        const nm = document.getElementById('nm-' + layer.id);
-        if (nm) nm.textContent = T('layer_label') + ' ' + (idx + 1);
-    });
-
-    // Update palette selects
-    const palKeys = ['pal_mono','pal_cool','pal_warm','pal_neon','pal_ocean','pal_fire','pal_sunset','pal_forest'];
-    layers.forEach(layer => {
-        const sel = document.getElementById('palsel-' + layer.id);
-        if (sel) {
-            sel.querySelectorAll('option').forEach((opt, i) => {
-                if (palKeys[i]) opt.textContent = T(palKeys[i]);
-            });
-        }
-    });
-
-    // Update inject placeholder
-    const injEl = document.getElementById('liveCode');
-    if (injEl) injEl.placeholder = isAr
-        ? 'اكتب معادلة... مثلاً sin(r*0.02-t)*2'
-        : 'Type equation... e.g. sin(r*0.02-t)*2';
-
-    // Rebuild help
-    buildHelp();
-
-    try { localStorage.setItem('xoretex_lang', currentLang); } catch (e) {}
+  });
+  const langBtn = document.getElementById('btnLang');
+  if (langBtn) langBtn.textContent = currentLang === 'en' ? 'عر' : 'EN';
+  buildHelpModal();
 }
 
 function toggleLang() {
-    currentLang = currentLang === 'en' ? 'ar' : 'en';
-    applyLanguage();
-    toast(T('t_lang'));
+  currentLang = currentLang === 'en' ? 'ar' : 'en';
+  localStorage.setItem('xoretex_lang', currentLang);
+  applyLocalization();
 }
 
-// ═══════════ HELP SYSTEM ═══════════
-function buildHelp() {
-    const steps = T('help_steps') || [];
-    document.getElementById('helpTitle').textContent = T('help_title');
-    document.getElementById('helpBody').innerHTML = steps.map((s, i) =>
-        `<div class="helpStep"><div class="helpNum">${i + 1}</div><div class="helpTxt"><h4>${s.t}</h4><p>${s.d}</p></div></div>`
-    ).join('');
+// ============================================================
+// NOISE UTILITY (simple value noise)
+// ============================================================
+const _noiseTable = new Float32Array(512);
+(function initNoise() {
+  for (let i = 0; i < 256; i++) _noiseTable[i] = _noiseTable[i + 256] = Math.random();
+})();
+
+function noise2D(x, y) {
+  const xi = Math.floor(x) & 255;
+  const yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x);
+  const yf = y - Math.floor(y);
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const a = _noiseTable[xi] + yi;
+  const b = _noiseTable[xi + 1] + yi;
+  return (
+    _noiseTable[a & 255] * (1 - u) * (1 - v) +
+    _noiseTable[b & 255] * u * (1 - v) +
+    _noiseTable[(a + 1) & 255] * (1 - u) * v +
+    _noiseTable[(b + 1) & 255] * u * v
+  );
 }
 
-function showHelp() {
-    buildHelp();
-    document.getElementById('helpModal').classList.add('active');
-}
-
-function closeHelp() {
-    document.getElementById('helpModal').classList.remove('active');
-}
-
-// ═══════════ UI HELPERS ═══════════
-function toggleSection(el) {
-    el.classList.toggle('shut');
-    const content = el.nextElementSibling;
-    content.style.maxHeight = el.classList.contains('shut') ? '0' : '3000px';
-    content.style.opacity = el.classList.contains('shut') ? '0' : '1';
-}
-
-function setConfig(el) {
-    config[el.id] = parseFloat(el.value);
-    const valEl = document.getElementById('val-' + el.id);
-    if (valEl) valEl.textContent = el.value;
-    if (el.id === 'particleCount') initParticles();
-}
-
-function toast(message) {
-    const el = document.getElementById('toast');
-    el.textContent = message;
-    el.classList.add('show');
-    clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.remove('show'), 2600);
-}
-
-function togglePanel() {
-    panelOpen = !panelOpen;
-    document.getElementById('panel').classList.toggle('hid');
-    document.getElementById('togBtn').classList.toggle('shifted');
-    document.getElementById('togBtn').textContent = panelOpen ? '⚡' : '☰';
-}
-
-function togglePause() {
-    paused = !paused;
-    document.getElementById('pauseBtn').textContent = paused ? '▶' : '⏸';
-    toast(paused ? T('t_paused') : T('t_resumed'));
-}
-
-function toggleFullscreen() {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-    else document.exitFullscreen();
-}
-
-function updateStats() {
-    document.getElementById('s-fps').textContent = fpsValue;
-    document.getElementById('s-pts').textContent = particles.length;
-    document.getElementById('s-lyr').textContent = layers.filter(l => l.enabled).length;
-    document.getElementById('s-time').textContent = time.toFixed(1);
-    document.getElementById('s-fields').textContent = forceFields.length;
-}
-
-function setSymmetry(n, el) {
-    config.symmetry = n;
-    document.querySelectorAll('.symChip').forEach(c => c.classList.remove('active'));
-    el.classList.add('active');
-}
-
-function toggleMotionBlur() {
-    motionBlurEnabled = !motionBlurEnabled;
-    document.getElementById('motionBlurTog').classList.toggle('on', motionBlurEnabled);
-    mainCan.classList.toggle('mblur', motionBlurEnabled);
-}
-
-function toggleFieldPulse() {
-    fieldPulseEnabled = !fieldPulseEnabled;
-    document.getElementById('pulseToggle').classList.toggle('on', fieldPulseEnabled);
-    renderFieldMarkers();
-}
-
-function setRecFormat(fmt, el) {
-    recordFormat = fmt;
-    document.querySelectorAll('.recOpt').forEach(e => e.classList.remove('active'));
-    el.classList.add('active');
-}
-
-// ═══════════ FORMULA LIBRARY ═══════════
-function toggleFormulaLib() {
-    const grid = document.getElementById('formulaGrid');
-    grid.classList.toggle('open');
-    if (grid.classList.contains('open') && !grid.children.length) {
-        grid.innerHTML = FORMULA_LIBRARY.map((f, i) =>
-            `<div class="flibItem" onclick="injectFormula(${i})">
-                <span class="flName">${f.name}</span>
-                <span class="flCode">${f.code.substring(7, 42)}…</span>
-            </div>`
-        ).join('');
-    }
-}
-
-function injectFormula(index) {
-    const f = FORMULA_LIBRARY[index];
-    if (!f) return;
-    document.getElementById('liveCode').value = f.code;
-    if (!layers.length) addLayer(f.code);
-    else {
-        const codeEl = document.getElementById('code-' + layers[0].id);
-        if (codeEl) codeEl.value = f.code;
-    }
-    document.getElementById('injectDot').className = 'injDot ok';
-    applyAll();
-    toast('📚 ' + f.name);
-}
-
-// ═══════════ LAYER FOCUS ═══════════
-function focusLayer(index) {
-    if (focusedLayerIndex === index) {
-        focusedLayerIndex = -1;
-        document.querySelectorAll('.layerBox').forEach(b => b.classList.remove('focused'));
-        toast(T('t_focus_off'));
-    } else {
-        focusedLayerIndex = index;
-        document.querySelectorAll('.layerBox').forEach(b => b.classList.remove('focused'));
-        if (layers[index]) {
-            const box = document.getElementById('box-' + layers[index].id);
-            if (box) box.classList.add('focused');
-        }
-        toast(T('t_focus_on'));
-    }
-}
-
-// ═══════════ FUNCTION BUILDER ═══════════
-function buildFunction(code) {
-    let c = code.trim();
-    if (!c) return () => 0;
-    if (!c.startsWith('return') && !c.includes('return ')) c = 'return ' + c;
-    if (!c.endsWith(';')) c += ';';
-    return new Function(
-        'x', 'y', 't', 'r', 'cx', 'cy', 'PI',
-        'sin', 'cos', 'tan', 'atan2', 'sqrt', 'abs',
-        'noise', 'audio', c
-    );
-}
-
-function executeFunction(fn, x, y, t, r, cx, cy) {
-    return fn(x, y, t, r, cx, cy, Math.PI,
-        Math.sin, Math.cos, Math.tan, Math.atan2, Math.sqrt, Math.abs,
-        (a, b) => noise.noise2D(a, b), audioFreqs.overall
-    );
-}// ═══════════════════════════════════════════════════════════
-// ENGINE.JS — PART 2/2
-// Presets, Layers, Particles, Audio, WebGL, Games,
-// SVG/GLSL Export, Recording, Events, Boot
-// ═══════════════════════════════════════════════════════════
-
-// ═══════════ PRESETS ═══════════
-const PRESETS = {
-    blackhole: {
-        name: 'Black Hole',
-        layers: [
-            { code: "return atan2(y-cy,x-cx)+PI/2-3.0/Math.max(r*0.008,0.01);", color: '#ff6600' },
-            { code: "var a=atan2(y-cy,x-cx);return a+sin(r*0.015-t*3)*0.8;", color: '#ffcc00' },
-            { code: "return atan2(y-cy,x-cx)+PI/2-1.5/Math.max(r*0.01,0.1)+cos(t)*0.3;", color: '#ff2200' }
-        ],
-        config: { trail: 0.012, speed: 2.5, particleCount: 6000, lineWidth: 0.7, timeSpeed: 0.8, glowIntensity: 0.9, glowRadius: 12 }
-    },
-    storm: {
-        name: 'Cosmic Storm',
-        layers: [
-            { code: "return sin(x*0.008+t)*cos(y*0.008+t)*PI*2;", color: '#ffffff' },
-            { code: "return atan2(y-cy,x-cx)+sin(r*0.04-t*3)*2.5;", color: '#00ccff' },
-            { code: "return cos(r*0.025)*sin(t*2+x*0.004)*PI+noise(x*0.003,y*0.003+t)*2;", color: '#9944ff' }
-        ],
-        config: { trail: 0.035, speed: 3.5, particleCount: 7000, lineWidth: 0.6, timeSpeed: 1.5, turbulence: 0.5, glowIntensity: 0.7, glowRadius: 10 }
-    },
-    dna: {
-        name: 'DNA Helix',
-        layers: [
-            { code: "return sin(y*0.018+t*2)*1.8+PI/2;", color: '#00ff88' },
-            { code: "return sin(y*0.018+t*2+PI)*1.8+PI/2;", color: '#ff4488' }
-        ],
-        config: { trail: 0.025, speed: 2.0, particleCount: 5000, lineWidth: 1.5, timeSpeed: 1.2, glowIntensity: 0.5, glowRadius: 6 }
-    },
-    galaxy: {
-        name: 'Galaxy',
-        layers: [
-            { code: "return atan2(y-cy,x-cx)+0.6/Math.max(r*0.008,0.1)+t*0.3;", color: '#00ccff' },
-            { code: "return sin(r*0.015-t*2)*PI+atan2(y-cy,x-cx);", color: '#ff00aa' }
-        ],
-        config: { trail: 0.015, speed: 2.0, particleCount: 6000, lineWidth: 0.8, timeSpeed: 0.7, glowIntensity: 0.7, glowRadius: 10 }
-    },
-    aurora: {
-        name: 'Aurora',
-        layers: [
-            { code: "return sin(x*0.003+t*0.5)*2+PI/2+noise(x*0.002,y*0.002+t*0.3)*1.5;", color: '#00ff88' },
-            { code: "return sin(x*0.005+t*0.8)*1.8+PI/2+noise(x*0.001+t,y*0.001)*2;", color: '#aa44ff' }
-        ],
-        config: { trail: 0.02, speed: 1.5, particleCount: 5000, turbulence: 0.3, glowIntensity: 0.8, glowRadius: 14 }
-    },
-    phoenix: {
-        name: 'Phoenix',
-        layers: [
-            { code: "var a=atan2(y-cy,x-cx);return a-PI/2+sin(r*0.03+t*4)*1.5;", color: '#ff4400' },
-            { code: "return -PI/2+sin(x*0.01+t*3)*0.5+cos(y*0.015)*0.3;", color: '#ffaa00' }
-        ],
-        config: { trail: 0.05, speed: 4.0, particleCount: 5000, timeSpeed: 2.0, glowIntensity: 0.9, glowRadius: 15 }
-    },
-    quantum: {
-        name: 'Quantum',
-        layers: [
-            { code: "return sin(x*0.025)*cos(y*0.025)*PI+sin(t+r*0.008)*2;", color: '#00ffff' },
-            { code: "return sin(x*y*0.00008+t)*PI*2;", color: '#ff00ff' }
-        ],
-        config: { trail: 0.025, speed: 1.8, particleCount: 5000, glowIntensity: 0.6, glowRadius: 8 }
-    },
-    ocean: {
-        name: 'Ocean',
-        layers: [
-            { code: "return sin(x*0.004+t)*0.6+sin(y*0.006+t*0.8)*0.4+PI*0.5;", color: '#0066ff' },
-            { code: "return cos(x*0.006-t*1.2)*0.5+sin(y*0.004)*0.5+PI*0.55;", color: '#00aaff' }
-        ],
-        config: { trail: 0.03, speed: 1.8, particleCount: 5000, turbulence: 0.2, glowIntensity: 0.5, glowRadius: 8 }
-    },
-    neural: {
-        name: 'Neural',
-        layers: [
-            { code: "return noise(x*0.008+t*0.5,y*0.008)*PI*2;", color: '#ff00aa' },
-            { code: "return noise(x*0.005-t*0.3,y*0.005+t*0.2)*PI*2+sin(r*0.01)*0.5;", color: '#00ff88' }
-        ],
-        config: { trail: 0.03, speed: 2.0, particleCount: 5000, turbulence: 0.8, glowIntensity: 0.7, glowRadius: 10 }
-    },
-    tornado: {
-        name: 'Tornado',
-        layers: [
-            { code: "var a=atan2(y-cy,x-cx);return a+PI/2+sin(y*0.01-t*3)*2-1.0/Math.max(r*0.005,0.01);", color: '#cccccc' },
-            { code: "var a=atan2(y-cy,x-cx);return a+PI/2+cos(y*0.008+t*2)*1.5;", color: '#88aacc' }
-        ],
-        config: { trail: 0.04, speed: 3.0, particleCount: 6000, timeSpeed: 1.8, turbulence: 0.4, glowIntensity: 0.5, glowRadius: 8 }
-    }
+// ============================================================
+// COLOR PALETTES
+// ============================================================
+const PALETTES = {
+  mono:   ['#00ffc8','#00e0b0','#00c090','#00a070','#00ff99'],
+  cool:   ['#00e5ff','#0080ff','#8000ff','#00ffc8','#4040ff'],
+  warm:   ['#ff8800','#ff4400','#ffcc00','#ff0044','#ff6600'],
+  neon:   ['#ff00ff','#00ffff','#ff0080','#00ff80','#8000ff'],
+  ocean:  ['#006080','#00a8cc','#00e5ff','#0040a0','#40e0d0'],
+  fire:   ['#ff2200','#ff6600','#ffaa00','#ffee00','#ff0044'],
+  sunset: ['#ff6b35','#ff8c42','#f9c74f','#ff4d6d','#c77dff'],
+  forest: ['#1a6b1a','#2ecc71','#00a86b','#228b22','#7fff00'],
 };
 
-function loadPreset(name) {
-    if (!name) return;
-    const preset = PRESETS[name];
-    if (!preset) return;
+function getPaletteColor(paletteName, index, total) {
+  const pal = PALETTES[paletteName] || PALETTES.mono;
+  return pal[Math.floor((index / Math.max(total, 1)) * pal.length) % pal.length];
+}
 
-    // Clear existing layers
-    layers.forEach(l => {
-        const el = document.getElementById('box-' + l.id);
-        if (el) el.remove();
-    });
-    layers = [];
-    focusedLayerIndex = -1;
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return { r, g, b };
+}
 
-    // Apply config
-    if (preset.config) {
-        Object.entries(preset.config).forEach(([key, val]) => {
-            config[key] = val;
-            const slider = document.getElementById(key);
-            if (slider) {
-                slider.value = val;
-                const valEl = document.getElementById('val-' + key);
-                if (valEl) valEl.textContent = val;
-            }
-        });
+// ============================================================
+// FORMULA SNIPPETS
+// ============================================================
+const SNIPPETS = [
+  { name: 'Swirly Nebula',   code: 'sin(r*0.01-t)*cos(atan2(y-cy,x-cx)+t)*3' },
+  { name: 'Grid Wave',       code: 'sin(x*0.04+t)*sin(y*0.04+t)*2' },
+  { name: 'Sine Ocean',      code: 'sin(x*0.03+t*1.5)*2+cos(y*0.02-t)*1.5' },
+  { name: 'Crystal Lattice', code: 'sin(x*0.05)*cos(y*0.05)*sin(t+r*0.005)*3' },
+  { name: 'DNA Helix',       code: 'sin(y*0.05+t)*3+cos(x*0.02)*noise(x*0.01,y*0.01+t)*2' },
+  { name: 'Spiral Arms',     code: 'sin(atan2(y-cy,x-cx)*4-r*0.008+t)*3' },
+  { name: 'Turbulent Flow',  code: 'noise(x*0.008+t*0.4,y*0.008+t*0.3)*6-3' },
+  { name: 'Electric Arc',    code: 'sin(x*0.03+noise(x*0.02,t)*4)*3+cos(y*0.02)*2' },
+  { name: 'Orbital Ring',    code: 'sin(r*0.015-t*2)*3*cos(atan2(y-cy,x-cx)+t*0.5)' },
+  { name: 'Flower Bloom',    code: 'sin(atan2(y-cy,x-cx)*6+t)*cos(r*0.01-t)*3' },
+];
+
+// ============================================================
+// PRESETS
+// ============================================================
+const PRESETS = [
+  {
+    name: 'Nebula Storm',
+    config: { particleCount:8000, speed:1.2, friction:0.97, turbulence:0.4, trailFade:0.06 },
+    layers: [
+      { eq:'sin(r*0.01-t)*cos(atan2(y-cy,x-cx)+t)*3', color:'#00ffc8', palette:'cool', opacity:1, weight:1 },
+      { eq:'noise(x*0.008+t*0.4,y*0.008)*6-3', color:'#ff00ff', palette:'neon', opacity:0.7, weight:0.7 },
+    ]
+  },
+  {
+    name: 'Ocean Pulse',
+    config: { particleCount:6000, speed:0.8, friction:0.975, turbulence:0.2, trailFade:0.05 },
+    layers: [
+      { eq:'sin(x*0.03+t*1.5)*2+cos(y*0.02-t)*1.5', color:'#00e5ff', palette:'ocean', opacity:1, weight:1 },
+    ]
+  },
+  {
+    name: 'Fire Spiral',
+    config: { particleCount:7000, speed:1.5, friction:0.965, turbulence:0.6, trailFade:0.1 },
+    layers: [
+      { eq:'sin(atan2(y-cy,x-cx)*4-r*0.008+t)*3', color:'#ff4400', palette:'fire', opacity:1, weight:1 },
+      { eq:'cos(r*0.015-t*2)*3', color:'#ffaa00', palette:'warm', opacity:0.6, weight:0.5 },
+    ]
+  },
+  {
+    name: 'Crystal Grid',
+    config: { particleCount:5000, speed:0.7, friction:0.98, turbulence:0.1, trailFade:0.04 },
+    layers: [
+      { eq:'sin(x*0.05)*cos(y*0.05)*sin(t+r*0.005)*3', color:'#8000ff', palette:'cool', opacity:1, weight:1 },
+    ]
+  },
+  {
+    name: 'DNA Flow',
+    config: { particleCount:9000, speed:1.0, friction:0.972, turbulence:0.35, trailFade:0.07 },
+    layers: [
+      { eq:'sin(y*0.05+t)*3+cos(x*0.02)*noise(x*0.01,y*0.01+t)*2', color:'#00ffc8', palette:'forest', opacity:1, weight:1 },
+      { eq:'sin(atan2(y-cy,x-cx)*6+t)*cos(r*0.01-t)*3', color:'#ff00ff', palette:'neon', opacity:0.5, weight:0.4 },
+    ]
+  },
+  {
+    name: 'Sunset Dream',
+    config: { particleCount:6500, speed:0.9, friction:0.976, turbulence:0.25, trailFade:0.06 },
+    layers: [
+      { eq:'sin(x*0.03+t)*sin(y*0.03+t)*2.5', color:'#ff6b35', palette:'sunset', opacity:1, weight:1 },
+    ]
+  },
+];
+
+// ============================================================
+// MAIN ENGINE STATE
+// ============================================================
+let ENG = {
+  running: true,
+  viewMode: 'both',
+  particles: [],
+  layers: [],
+  forceFields: [],
+  obstacles: [],
+  gameMode: null,
+  paintCanvas: null,
+  paintCtx: null,
+  colorWarCanvas: null,
+  colorWarCtx: null,
+  warOwnership: null,
+  audioData: { bass:0, mid:0, high:0, spectrum:[], bpm:0, beat:false, gain:1 },
+  mouse: { x:-9999, y:-9999, down:false, mode:'push' },
+  time: 0,
+  lastTime: 0,
+  frameCount: 0,
+  fps: 60,
+  config: {
+    particleCount: 6000,
+    speed: 1.0,
+    friction: 0.97,
+    turbulence: 0.3,
+    trailFade: 0.08,
+    motionBlur: false,
+    glow: true,
+    connections: false,
+    connDist: 60,
+    symmetry: 0,
+    depth3D: false,
+    trailShape: 'line',
+    mouseForce: 100,
+    ffPulse: false,
+    pulseSpeed: 1.0,
+  },
+  mediaRecorder: null,
+  recChunks: [],
+  recStartTime: 0,
+  recTimerID: null,
+  animID: null,
+  focusedLayer: -1,
+};
+
+// Canvas references
+let bgCan, flowCan, glowCan, connCan;
+let bgCtx, flowCtx, glowCtx, connCtx;
+let W = 0, H = 0;
+
+// ============================================================
+// INIT
+// ============================================================
+function initEngine2D() {
+  try {
+    bgCan   = document.getElementById('bgCan');
+    flowCan = document.getElementById('flowCan');
+    glowCan = document.getElementById('glowCan');
+    connCan = document.getElementById('connCan');
+
+    if (!bgCan || !flowCan || !glowCan || !connCan) {
+      throw new Error('Canvas elements missing');
     }
 
-    // Add layers
-    preset.layers.forEach(l => addLayer(l.code, l.color));
+    bgCtx   = bgCan.getContext('2d');
+    flowCtx = flowCan.getContext('2d');
+    glowCtx = glowCan.getContext('2d');
+    connCtx = connCan.getContext('2d');
 
-    // Sync injection
-    if (preset.layers[0]) {
-        document.getElementById('liveCode').value = preset.layers[0].code;
-        document.getElementById('injectDot').className = 'injDot ok';
+    resizeCanvases();
+    window.addEventListener('resize', resizeCanvases);
+
+    buildDefaultLayers();
+    buildPanel();
+    applyLocalization();
+    bindTopBar();
+    bindKeyboard();
+    bindMouse();
+    bindTouch();
+    initAudioBars();
+    applyPreset(PRESETS[0]);
+
+    spawnParticles();
+    ENG.lastTime = performance.now();
+    loop();
+
+    // Help modal on first visit
+    if (!localStorage.getItem('xoretex_help_seen')) {
+      showModal('helpModal');
     }
 
-    applyAll();
-    document.getElementById('presetDD').value = name;
-    toast('⚡ ' + preset.name);
+  } catch (err) {
+    reportError('engine2d init failed', err);
+  }
 }
 
-// ═══════════ LAYER MANAGEMENT ═══════════
-function addLayer(code, color) {
-    code = code || '';
-    color = color || LAYER_COLORS[layers.length % LAYER_COLORS.length];
-    const id = 'L' + (++layerCounter);
-    const num = layers.length + 1;
-    const idx = layers.length;
-    const palette = PALETTES.mono(color);
+function resizeCanvases() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  [bgCan, flowCan, glowCan, connCan].forEach(c => {
+    if (c) { c.width = W; c.height = H; }
+  });
+  const cubeCan = document.getElementById('cubeCan');
+  if (cubeCan) { cubeCan.width = W; cubeCan.height = H; }
 
-    document.getElementById('layersBox').insertAdjacentHTML('beforeend', `
-        <div class="layerBox" id="box-${id}">
-            <div class="layHead">
-                <div class="layId" onclick="focusLayer(${idx})">
-                    <div class="layDot" id="dot-${id}" style="background:${color};box-shadow:0 0 5px ${color}"></div>
-                    <span class="layName" id="nm-${id}" style="color:${color}">${T('layer_label')} ${num}</span>
-                </div>
-                <div class="layBtns">
-                    <div class="layBtn on" id="vis-${id}" onclick="toggleLayerVis('${id}')">👁</div>
-                    <div class="layBtn" onclick="duplicateLayer('${id}')">📋</div>
-                    <div class="layBtn del" onclick="removeLayer('${id}')">✕</div>
-                </div>
-            </div>
-            <textarea class="layCode" id="code-${id}" spellcheck="false" oninput="liveEdit()">${code || 'return sin(0.02*r-t);'}</textarea>
-            <div class="layOpts">
-                <input type="color" class="colorPick" id="clr-${id}" value="${color}" onchange="updateLayerDot('${id}',this.value);updatePalette('${id}')">
-                <div class="miniCtrl">
-                    <div class="miniLbl"><span>Op</span><span class="miniVal" id="opv-${id}">1.0</span></div>
-                    <input type="range" id="op-${id}" min="0.05" max="1" step="0.05" value="1" oninput="document.getElementById('opv-${id}').textContent=this.value">
-                </div>
-                <div class="miniCtrl">
-                    <div class="miniLbl"><span>Wt</span><span class="miniVal" id="wtv-${id}">1.0</span></div>
-                    <input type="range" id="wt-${id}" min="0.1" max="4" step="0.1" value="1" oninput="document.getElementById('wtv-${id}').textContent=this.value">
-                </div>
-            </div>
-            <div class="palRow" id="pal-${id}">${palette.map(c => `<div class="palSw" style="background:${c}"></div>`).join('')}</div>
-            <select class="palSel" id="palsel-${id}" onchange="changePalette('${id}',this.value)">
-                <option value="mono">${T('pal_mono')}</option>
-                <option value="cool">${T('pal_cool')}</option>
-                <option value="warm">${T('pal_warm')}</option>
-                <option value="neon">${T('pal_neon')}</option>
-                <option value="ocean">${T('pal_ocean')}</option>
-                <option value="fire">${T('pal_fire')}</option>
-                <option value="sunset">${T('pal_sunset')}</option>
-                <option value="forest">${T('pal_forest')}</option>
-            </select>
-        </div>
-    `);
-
-    layers.push({
-        id, enabled: true, fn: null, color,
-        opacity: 1, weight: 1,
-        palette, paletteName: 'mono'
-    });
-    updateStats();
+  if (ENG.paintCanvas) { ENG.paintCanvas.width = W; ENG.paintCanvas.height = H; }
+  if (ENG.colorWarCanvas) {
+    ENG.colorWarCanvas.width = W;
+    ENG.colorWarCanvas.height = H;
+    initColorWar();
+  }
+  drawBackground();
 }
 
-function changePalette(id, palName) {
-    const layer = layers.find(l => l.id === id);
-    if (!layer) return;
-    layer.paletteName = palName;
-    layer.palette = palName === 'mono'
-        ? PALETTES.mono(layer.color)
-        : (PALETTES[palName] ? PALETTES[palName]() : PALETTES.mono(layer.color));
-    const row = document.getElementById('pal-' + id);
-    if (row) row.innerHTML = layer.palette.map(c => `<div class="palSw" style="background:${c}"></div>`).join('');
+// ============================================================
+// BACKGROUND
+// ============================================================
+function drawBackground() {
+  if (!bgCtx) return;
+  bgCtx.fillStyle = '#0a0a0f';
+  bgCtx.fillRect(0, 0, W, H);
+  // subtle radial glow at center
+  const grd = bgCtx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
+  grd.addColorStop(0, 'rgba(0,60,40,0.12)');
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  bgCtx.fillStyle = grd;
+  bgCtx.fillRect(0, 0, W, H);
 }
 
-function updatePalette(id) {
-    const layer = layers.find(l => l.id === id);
-    if (!layer || layer.paletteName !== 'mono') return;
-    layer.color = document.getElementById('clr-' + id)?.value || '#00ff88';
-    layer.palette = PALETTES.mono(layer.color);
-    const row = document.getElementById('pal-' + id);
-    if (row) row.innerHTML = layer.palette.map(c => `<div class="palSw" style="background:${c}"></div>`).join('');
+// ============================================================
+// LAYER MANAGEMENT
+// ============================================================
+function buildDefaultLayers() {
+  ENG.layers = [
+    createLayer('sin(r*0.01-t)*cos(atan2(y-cy,x-cx)+t)*3', '#00ffc8', 'cool', 1.0, 1.0),
+  ];
 }
 
-function removeLayer(id) {
-    const el = document.getElementById('box-' + id);
-    if (!el) return;
-    el.style.transition = 'all .3s';
-    el.style.opacity = '0';
-    el.style.transform = 'translateX(30px)';
-    setTimeout(() => {
-        el.remove();
-        layers = layers.filter(l => l.id !== id);
-        focusedLayerIndex = -1;
-        applyAll();
-    }, 300);
+function createLayer(eq, color, palette, opacity, weight) {
+  return {
+    id: Date.now() + Math.random(),
+    eq: eq || 'sin(x*0.02+t)*cos(y*0.02+t)*2',
+    color: color || '#00ffc8',
+    palette: palette || 'mono',
+    opacity: opacity !== undefined ? opacity : 1.0,
+    weight: weight !== undefined ? weight : 1.0,
+    enabled: true,
+    fn: null,
+    valid: true,
+  };
 }
 
-function duplicateLayer(id) {
-    const codeEl = document.getElementById('code-' + id);
-    const colorEl = document.getElementById('clr-' + id);
-    if (codeEl) addLayer(codeEl.value, colorEl?.value);
-    applyAll();
-    toast(T('t_cloned'));
+function compileLayerFn(layer) {
+  try {
+    layer.fn = new Function(
+      'x','y','t','r','cx','cy','PI','sin','cos','tan','atan2','sqrt','abs','noise','audio',
+      'return (' + layer.eq + ');'
+    );
+    layer.valid = true;
+    return true;
+  } catch (e) {
+    layer.fn = null;
+    layer.valid = false;
+    return false;
+  }
 }
 
-function toggleLayerVis(id) {
-    const layer = layers.find(l => l.id === id);
-    if (!layer) return;
-    layer.enabled = !layer.enabled;
-    const btn = document.getElementById('vis-' + id);
-    btn.classList.toggle('on');
-    btn.textContent = layer.enabled ? '👁' : '🚫';
-    document.getElementById('box-' + id).classList.toggle('off');
-    initParticles();
+function evalLayer(layer, x, y, t) {
+  if (!layer.fn || !layer.enabled) return 0;
+  try {
+    const r = Math.sqrt((x - W/2) ** 2 + (y - H/2) ** 2);
+    const val = layer.fn(
+      x, y, t, r, W/2, H/2,
+      Math.PI, Math.sin, Math.cos, Math.tan, Math.atan2, Math.sqrt, Math.abs,
+      noise2D, ENG.audioData.bass
+    );
+    return isFinite(val) ? val : 0;
+  } catch (e) {
+    return 0;
+  }
 }
 
-function updateLayerDot(id, color) {
-    const dot = document.getElementById('dot-' + id);
-    const name = document.getElementById('nm-' + id);
-    if (dot) { dot.style.background = color; dot.style.boxShadow = '0 0 5px ' + color; }
-    if (name) name.style.color = color;
+// Compile all layers
+function compileAllLayers() {
+  ENG.layers.forEach(l => compileLayerFn(l));
 }
 
-// ═══════════ LIVE INJECTION ═══════════
-let liveInjectTimer = null;
-
-function liveInject(el) {
-    clearTimeout(liveInjectTimer);
-    liveInjectTimer = setTimeout(() => {
-        const code = el.value.trim();
-        const dot = document.getElementById('injectDot');
-        if (!code) { dot.className = 'injDot'; return; }
-
-        if (!layers.length) addLayer(code);
-        else {
-            const codeEl = document.getElementById('code-' + layers[0].id);
-            if (codeEl) codeEl.value = code;
-        }
-
-        try {
-            const fn = buildFunction(code);
-            executeFunction(fn, 0, 0, 0, 0, 0, 0);
-            el.classList.remove('err');
-            dot.className = 'injDot ok';
-            applyAll();
-        } catch (e) {
-            el.classList.add('err');
-            dot.className = 'injDot err';
-        }
-    }, 180);
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+function createParticle(layerIndex) {
+  const px = Math.random() * W;
+  const py = Math.random() * H;
+  const life = 60 + Math.random() * 200;
+  return {
+    x: px, y: py, px: px, py: py,
+    vx: (Math.random() - 0.5) * 0.5,
+    vy: (Math.random() - 0.5) * 0.5,
+    life: life, maxLife: life,
+    mass: 0.5 + Math.random() * 1.5,
+    size: 0.8 + Math.random() * 2.2,
+    brightness: 0.5 + Math.random() * 0.5,
+    palIndex: Math.random(),
+    depth: 0.3 + Math.random() * 0.7,
+    layerIndex: layerIndex,
+  };
 }
 
-function liveEdit() {
-    clearTimeout(liveInjectTimer);
-    liveInjectTimer = setTimeout(() => applyAll(), 250);
+function spawnParticles() {
+  ENG.particles = [];
+  const n = ENG.config.particleCount;
+  const nl = ENG.layers.length || 1;
+  for (let i = 0; i < n; i++) {
+    const li = i % nl;
+    ENG.particles.push(createParticle(li));
+  }
+  compileAllLayers();
 }
 
-function insertVar(v) {
-    const el = document.getElementById('liveCode');
-    const start = el.selectionStart;
-    el.value = el.value.substring(0, start) + v + el.value.substring(el.selectionEnd);
-    el.selectionStart = el.selectionEnd = start + v.length;
-    el.focus();
-    liveInject(el);
+function resetParticle(p) {
+  p.x = Math.random() * W;
+  p.y = Math.random() * H;
+  p.px = p.x; p.py = p.y;
+  p.vx = (Math.random() - 0.5) * 0.5;
+  p.vy = (Math.random() - 0.5) * 0.5;
+  const life = 60 + Math.random() * 200;
+  p.life = life; p.maxLife = life;
+  p.palIndex = Math.random();
+  p.depth = 0.3 + Math.random() * 0.7;
 }
 
-// ═══════════ APPLY ALL LAYERS ═══════════
-function applyAll() {
-    layers.forEach(layer => {
-        const codeEl = document.getElementById('code-' + layer.id);
-        if (!codeEl) return;
-        layer.color = document.getElementById('clr-' + layer.id)?.value || '#00ff88';
-        layer.opacity = parseFloat(document.getElementById('op-' + layer.id)?.value || 1);
-        layer.weight = parseFloat(document.getElementById('wt-' + layer.id)?.value || 1);
-        try {
-            layer.fn = buildFunction(codeEl.value);
-            executeFunction(layer.fn, 100, 100, 0, 50, W / 2, H / 2);
-            codeEl.classList.remove('err');
-        } catch (e) {
-            layer.fn = () => 0;
-            codeEl.classList.add('err');
-        }
-    });
-    initParticles();
-    updateStats();
-}
+// ============================================================
+// PHYSICS UPDATE
+// ============================================================
+function updateParticles(dt) {
+  const cfg = ENG.config;
+  const speed = cfg.speed * (1 + ENG.audioData.bass * 2);
+  const friction = cfg.friction;
+  const turb = cfg.turbulence;
+  const t = ENG.time;
+  const mf = cfg.mouseForce;
+  const mx = ENG.mouse.x, my = ENG.mouse.y, mDown = ENG.mouse.down;
+  const mouseMode = ENG.mouse.mode;
+  const nl = ENG.layers.length;
+  const dt60 = dt * 60;
 
-// ═══════════ PARTICLE CLASS ═══════════
-class Particle {
-    constructor(layerIndex) {
-        this.li = layerIndex;
-        this.mass = 0.5 + Math.random() * 1.5;
-        this.paletteIndex = Math.floor(Math.random() * 4);
-        this.brightness = 0.4 + Math.random() * 0.6;
-        this.size = 0.5 + Math.random() * 0.5;
-        this.z = Math.random();
-        this.reset();
+  for (let i = 0, n = ENG.particles.length; i < n; i++) {
+    const p = ENG.particles[i];
+    p.life -= dt60 * 0.5;
+    if (p.life <= 0) { resetParticle(p); continue; }
+
+    const layer = ENG.layers[p.layerIndex % nl];
+    if (!layer || !layer.enabled) { p.px = p.x; p.py = p.y; continue; }
+
+    // formula force
+    const angle = evalLayer(layer, p.x, p.y, t) * layer.weight;
+    const fa = 0.04 * speed / p.mass;
+    p.vx += Math.cos(angle) * fa;
+    p.vy += Math.sin(angle) * fa;
+
+    // turbulence
+    if (turb > 0) {
+      p.vx += (Math.random() - 0.5) * turb * 0.1;
+      p.vy += (Math.random() - 0.5) * turb * 0.1;
     }
 
-    reset() {
-        this.x = Math.random() * W;
-        this.y = Math.random() * H;
-        this.prevX = this.x;
-        this.prevY = this.y;
-        this.life = 60 + Math.random() * 140;
-        this.maxLife = this.life;
-        this.vx = 0;
-        this.vy = 0;
-        this.z = Math.random();
+    // force fields
+    for (let fi = 0; fi < ENG.forceFields.length; fi++) {
+      const ff = ENG.forceFields[fi];
+      const dx = ff.x - p.x, dy = ff.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      let str = ff.strength;
+      if (cfg.ffPulse) {
+        str *= (0.5 + 0.5 * Math.sin(t * cfg.pulseSpeed * 2 + fi));
+      }
+      if (d2 < ff.radius * ff.radius && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const f = str / (d * p.mass) * 0.5;
+        switch (ff.type) {
+          case 'attract': p.vx += dx / d * f; p.vy += dy / d * f; break;
+          case 'repel':   p.vx -= dx / d * f; p.vy -= dy / d * f; break;
+          case 'vortex':  p.vx -= dy / d * f; p.vy += dx / d * f; break;
+          case 'gravity': p.vx += dx / d * f * 0.5; p.vy += dy / d * f * 0.5 + 0.02; break;
+        }
+      }
     }
 
-    update() {
-        this.prevX = this.x;
-        this.prevY = this.y;
-
-        const layer = layers[this.li];
-        if (!layer || !layer.fn || !layer.enabled) return;
-
-        const cx = W * 0.5, cy = H * 0.5;
-        const dx = this.x - cx, dy = this.y - cy;
-        const r = Math.sqrt(dx * dx + dy * dy);
-
-        // Execute equation
-        let angle = 0;
-        try { angle = executeFunction(layer.fn, this.x, this.y, time, r, cx, cy); }
-        catch (e) { angle = 0; }
-        if (!isFinite(angle)) angle = 0;
-
-        // Mass affects responsiveness
-        const massInverse = 1.0 / this.mass;
-        let speed = config.speed * (layer.weight || 1) * massInverse;
-
-        // Audio modulation
-        if (audioActive) {
-            speed += audioFreqs.bass * config.audioBass * 3 * massInverse;
-            if (beatDetected) speed *= 1.5;
+    // mouse interaction
+    if (mx > -9000) {
+      const dx = mx - p.x, dy = my - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < mf * mf && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const f = (mDown ? 2 : 0.5) * mf / (d * p.mass * 100);
+        switch (mouseMode) {
+          case 'push':    p.vx -= dx / d * f; p.vy -= dy / d * f; break;
+          case 'attract': p.vx += dx / d * f; p.vy += dy / d * f; break;
+          case 'swirl':   p.vx -= dy / d * f; p.vy += dx / d * f; break;
+          case 'paint':   break;
         }
-
-        // Turbulence
-        if (config.turbulence > 0) {
-            angle += noise.noise2D(this.x * 0.004 + time, this.y * 0.004) * config.turbulence;
-        }
-
-        // Mouse/Touch force
-        if (config.mouseForce > 0 && pointer.on) {
-            const mx = this.x - pointer.x, my = this.y - pointer.y;
-            const md = Math.sqrt(mx * mx + my * my);
-            if (md < config.mouseRadius && md > 0.5) {
-                const force = (1 - md / config.mouseRadius) * config.mouseForce * (pointer.repel ? 1 : -1) * massInverse;
-                this.vx += (mx / md) * force;
-                this.vy += (my / md) * force;
-            }
-        }
-
-        // Force fields
-        for (let i = 0; i < forceFields.length; i++) {
-            const ff = forceFields[i];
-            const fx = this.x - ff.x, fy = this.y - ff.y;
-            const fd = Math.sqrt(fx * fx + fy * fy);
-            if (fd > ff.radius || fd < 1) continue;
-
-            let strength = ff.strength;
-            if (fieldPulseEnabled) {
-                strength *= 0.5 + 0.5 * Math.sin(time * config.pulseSpeed * 3 + ff.x * 0.01);
-            }
-
-            const fs = (1 - fd / ff.radius) * strength * 0.3 * massInverse;
-            switch (ff.type) {
-                case 'attract': this.vx -= (fx / fd) * fs; this.vy -= (fy / fd) * fs; break;
-                case 'repel':   this.vx += (fx / fd) * fs; this.vy += (fy / fd) * fs; break;
-                case 'vortex':
-                    this.vx += (-fy / fd) * fs; this.vy += (fx / fd) * fs;
-                    this.vx -= (fx / fd) * fs * 0.2; this.vy -= (fy / fd) * fs * 0.2;
-                    break;
-                case 'gravity':
-                    const g = fs * 2 / (fd * 0.01 + 1);
-                    this.vx -= (fx / fd) * g; this.vy -= (fy / fd) * g;
-                    break;
-            }
-        }
-
-        // Obstacle collision
-        for (let i = 0; i < obstacles.length; i++) {
-            const obs = obstacles[i];
-            const ox = this.x - obs.x, oy = this.y - obs.y;
-            const od = Math.sqrt(ox * ox + oy * oy);
-            if (od < obs.r && od > 0) {
-                const push = (obs.r - od) / obs.r * 5;
-                this.vx += (ox / od) * push;
-                this.vy += (oy / od) * push;
-            }
-        }
-
-        // Velocity with friction
-        this.vx = this.vx * config.friction + Math.cos(angle) * speed * 0.15;
-        this.vy = this.vy * config.friction + Math.sin(angle) * speed * 0.15;
-        this.x += this.vx;
-        this.y += this.vy;
-
-        // Boundary check
-        if (this.x < -60 || this.x > W + 60 || this.y < -60 || this.y > H + 60 || --this.life < 0) {
-            this.reset();
-        }
-
-        // Game: Painter mode
-        if (gameMode === 'painter' && paintCtx) {
-            const pal = layers[this.li]?.palette || ['#fff'];
-            const rgb = hexToRgb(pal[this.paletteIndex % pal.length]);
-            paintCtx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.02)`;
-            paintCtx.fillRect(this.x - 1, this.y - 1, 2, 2);
-        }
-
-        // Game: Color War (smooth gradient)
-        if (gameMode === 'colorwar' && paintCtx) {
-            const pal = layers[this.li]?.palette || ['#fff'];
-            const col = pal[this.paletteIndex % pal.length];
-            const rgb = hexToRgb(col);
-            const radius = 8 + this.size * 4;
-            const grad = paintCtx.createRadialGradient(this.x, this.y, 0, this.x, this.y, radius);
-            grad.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0.012)`);
-            grad.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},0.006)`);
-            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-            paintCtx.fillStyle = grad;
-            paintCtx.beginPath();
-            paintCtx.arc(this.x, this.y, radius, 0, Math.PI * 2);
-            paintCtx.fill();
-        }
+      }
     }
 
-    draw(renderCtx) {
-        const layer = layers[this.li];
-        if (!layer || !layer.enabled) return;
-
-        const lifeRatio = this.life / this.maxLife;
-        let alpha = Math.min(1, lifeRatio * 3) * (layer.opacity || 1) * this.brightness;
-        if (alpha < 0.01) return;
-
-        // Focus effect
-        if (focusedLayerIndex >= 0) {
-            alpha = this.li === focusedLayerIndex ? Math.min(1, alpha * 1.8) : alpha * 0.15;
+    // obstacles (sculptor mode)
+    if (ENG.gameMode === 'sculptor') {
+      for (let oi = 0; oi < ENG.obstacles.length; oi++) {
+        const ob = ENG.obstacles[oi];
+        const dx = p.x - ob.x, dy = p.y - ob.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < ob.r * ob.r && d2 > 0) {
+          const d = Math.sqrt(d2);
+          p.vx += dx / d * 2; p.vy += dy / d * 2;
         }
+      }
+    }
 
-        // Get color from palette
-        const palette = layer.palette || [layer.color];
-        const baseHex = palette[this.paletteIndex % palette.length];
-        let rgb;
+    // friction
+    p.vx *= Math.pow(friction, dt60);
+    p.vy *= Math.pow(friction, dt60);
 
-        if (config.colorCycle > 0) {
-            const hue = (time * config.colorCycle * 50 + this.x * 0.1 + this.y * 0.1) % 360;
-            const base = hexToRgb(baseHex);
-            const mix = Math.min(config.colorCycle, 1);
-            const cycleRgb = hexToRgb(hslToHex(hue, 100, 60));
-            rgb = {
-                r: Math.round(base.r * (1 - mix) + cycleRgb.r * mix),
-                g: Math.round(base.g * (1 - mix) + cycleRgb.g * mix),
-                b: Math.round(base.b * (1 - mix) + cycleRgb.b * mix)
-            };
+    // clamp velocity
+    const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    const maxSpd = 4 * speed;
+    if (spd > maxSpd) { p.vx = p.vx / spd * maxSpd; p.vy = p.vy / spd * maxSpd; }
+
+    // update position
+    p.px = p.x; p.py = p.y;
+    p.x += p.vx * dt60;
+    p.y += p.vy * dt60;
+
+    // boundary
+    if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) {
+      if (p.x < 0) p.x = W; else if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H; else if (p.y > H) p.y = 0;
+      p.px = p.x; p.py = p.y;
+    }
+  }
+}
+
+// ============================================================
+// RENDER 2D
+// ============================================================
+function render2D() {
+  if (!flowCtx) return;
+  const cfg = ENG.config;
+  const fade = cfg.trailFade;
+
+  // trail fade
+  flowCtx.globalAlpha = fade;
+  flowCtx.globalCompositeOperation = 'destination-out';
+  flowCtx.fillRect(0, 0, W, H);
+  flowCtx.globalCompositeOperation = 'source-over';
+  flowCtx.globalAlpha = 1;
+
+  // paint mode canvas
+  if (ENG.gameMode === 'painter' && ENG.paintCtx) {
+    ENG.paintCtx.globalCompositeOperation = 'source-over';
+  }
+
+  // color war canvas
+  if (ENG.gameMode === 'colorwar' && ENG.colorWarCtx) {
+    renderColorWar();
+  }
+
+  const nl = ENG.layers.length;
+  const focL = ENG.focusedLayer;
+
+  for (let i = 0, n = ENG.particles.length; i < n; i++) {
+    const p = ENG.particles[i];
+    const li = p.layerIndex % nl;
+    const layer = ENG.layers[li];
+    if (!layer || !layer.enabled) continue;
+
+    const lifeRatio = p.life / p.maxLife;
+    let alpha = lifeRatio * p.brightness * layer.opacity;
+
+    // focus dimming
+    if (focL >= 0 && li !== focL) alpha *= 0.08;
+
+    if (alpha < 0.005) continue;
+
+    // color from palette
+    const palColor = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
+    const rgb = hexToRgb(palColor);
+
+    // audio glow boost
+    const glowBoost = 1 + ENG.audioData.bass * 0.5;
+
+    // depth scale
+    const dScale = cfg.depth3D ? (0.5 + p.depth * 0.5) : 1;
+    const sz = p.size * dScale * glowBoost;
+
+    flowCtx.globalAlpha = alpha;
+
+    switch (cfg.trailShape) {
+      case 'dot': {
+        flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+        flowCtx.beginPath();
+        flowCtx.arc(p.x, p.y, sz * 0.8, 0, Math.PI * 2);
+        flowCtx.fill();
+        break;
+      }
+      case 'triangle': {
+        flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+        flowCtx.beginPath();
+        flowCtx.moveTo(p.x, p.y - sz);
+        flowCtx.lineTo(p.x - sz * 0.8, p.y + sz * 0.5);
+        flowCtx.lineTo(p.x + sz * 0.8, p.y + sz * 0.5);
+        flowCtx.closePath();
+        flowCtx.fill();
+        break;
+      }
+      case 'glow-dot': {
+        const grd = flowCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 3);
+        grd.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},1)`);
+        grd.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+        flowCtx.fillStyle = grd;
+        flowCtx.beginPath();
+        flowCtx.arc(p.x, p.y, sz * 3, 0, Math.PI * 2);
+        flowCtx.fill();
+        break;
+      }
+      case 'line':
+      default: {
+        const dx = p.x - p.px, dy = p.y - p.py;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.1) break;
+        flowCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+        flowCtx.lineWidth = sz * 0.8;
+        flowCtx.beginPath();
+        flowCtx.moveTo(p.px, p.py);
+        flowCtx.lineTo(p.x, p.y);
+        flowCtx.stroke();
+        break;
+      }
+    }
+
+    // symmetry
+    const sym = cfg.symmetry;
+    if (sym >= 2) {
+      const cx2 = W / 2, cy2 = H / 2;
+      const rdx = p.x - cx2, rdy = p.y - cy2;
+      const step = (Math.PI * 2) / sym;
+      for (let s = 1; s < sym; s++) {
+        const ang = step * s;
+        const nx = cx2 + rdx * Math.cos(ang) - rdy * Math.sin(ang);
+        const ny = cy2 + rdx * Math.sin(ang) + rdy * Math.cos(ang);
+        flowCtx.beginPath();
+        if (cfg.trailShape === 'dot' || cfg.trailShape === 'glow-dot') {
+          flowCtx.arc(nx, ny, sz * 0.8, 0, Math.PI * 2);
+          flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+          flowCtx.fill();
         } else {
-            rgb = hexToRgb(baseHex);
+          const pdx = p.px - cx2, pdy = p.py - cy2;
+          const npx = cx2 + pdx * Math.cos(ang) - pdy * Math.sin(ang);
+          const npy = cy2 + pdx * Math.sin(ang) + pdy * Math.cos(ang);
+          flowCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+          flowCtx.lineWidth = sz * 0.8;
+          flowCtx.moveTo(npx, npy);
+          flowCtx.lineTo(nx, ny);
+          flowCtx.stroke();
         }
-
-        // 3D depth
-        let sz = config.lineWidth * this.size;
-        if (config.depth3d > 0) {
-            const zFactor = 0.3 + this.z * 0.7 * config.depth3d;
-            alpha *= zFactor;
-            sz *= zFactor;
-        }
-
-        const colorStr = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
-        const shape = config.trailShape;
-
-        if (shape === 'line') {
-            renderCtx.strokeStyle = colorStr;
-            renderCtx.lineWidth = sz;
-            renderCtx.beginPath();
-            renderCtx.moveTo(this.prevX, this.prevY);
-            renderCtx.lineTo(this.x, this.y);
-            renderCtx.stroke();
-        } else if (shape === 'dot') {
-            renderCtx.fillStyle = colorStr;
-            renderCtx.beginPath();
-            renderCtx.arc(this.x, this.y, sz * 0.8, 0, Math.PI * 2);
-            renderCtx.fill();
-        } else if (shape === 'triangle') {
-            renderCtx.fillStyle = colorStr;
-            const s = sz * 2, ang = Math.atan2(this.vy, this.vx);
-            renderCtx.beginPath();
-            renderCtx.moveTo(this.x + Math.cos(ang) * s, this.y + Math.sin(ang) * s);
-            renderCtx.lineTo(this.x + Math.cos(ang + 2.3) * s * 0.5, this.y + Math.sin(ang + 2.3) * s * 0.5);
-            renderCtx.lineTo(this.x + Math.cos(ang - 2.3) * s * 0.5, this.y + Math.sin(ang - 2.3) * s * 0.5);
-            renderCtx.fill();
-        } else {
-            const grad = renderCtx.createRadialGradient(this.x, this.y, 0, this.x, this.y, sz * 3);
-            grad.addColorStop(0, colorStr);
-            grad.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-            renderCtx.fillStyle = grad;
-            renderCtx.beginPath();
-            renderCtx.arc(this.x, this.y, sz * 3, 0, Math.PI * 2);
-            renderCtx.fill();
-        }
-    }
-}
-
-function initParticles() {
-    particles = [];
-    const activeLayers = layers.filter(l => l.enabled && l.fn);
-    if (!activeLayers.length) return;
-    const perLayer = Math.floor(config.particleCount / activeLayers.length);
-    activeLayers.forEach(layer => {
-        const idx = layers.indexOf(layer);
-        for (let i = 0; i < perLayer; i++) particles.push(new Particle(idx));
-    });
-    updateStats();
-}
-
-// ═══════════ FORCE FIELDS ═══════════
-function addField(type) {
-    placingFieldType = type;
-    mainCan.style.cursor = 'crosshair';
-    toast(T('t_field_place') + type);
-}
-
-function placeField(x, y, type) {
-    const colors = { attract: '#00aaff', repel: '#ff4444', vortex: '#aa44ff', gravity: '#ffaa00' };
-    forceFields.push({ id: 'F' + Date.now(), type, x, y, strength: 3, radius: 200, color: colors[type] });
-    renderFieldMarkers();
-    updateStats();
-    mainCan.style.cursor = 'default';
-    placingFieldType = null;
-}
-
-function removeField(id) {
-    forceFields = forceFields.filter(f => f.id !== id);
-    renderFieldMarkers();
-    updateStats();
-}
-
-function clearFields() {
-    forceFields = [];
-    renderFieldMarkers();
-    updateStats();
-    toast(T('t_fields_cleared'));
-}
-
-function renderFieldMarkers() {
-    const emojis = { attract: '🔵', repel: '🔴', vortex: '🟣', gravity: '⚫' };
-    const bgs = { attract: 'rgba(0,170,255,.3)', repel: 'rgba(255,68,68,.3)', vortex: 'rgba(170,68,255,.3)', gravity: 'rgba(255,170,0,.3)' };
-
-    document.getElementById('forceList').innerHTML = forceFields.map(f =>
-        `<div class="ffItem"><span>${emojis[f.type]}</span><span style="flex:1;opacity:.5"><strong>${f.type}</strong>${fieldPulseEnabled ? ' ⚡' : ''}</span><div class="layBtn del" onclick="removeField('${f.id}')" style="font-size:8px">✕</div></div>`
-    ).join('');
-
-    document.getElementById('fieldMarkers').innerHTML = forceFields.map(f =>
-        `<div class="fieldMark" style="left:${f.x}px;top:${f.y}px;border:2px solid ${f.color};background:${bgs[f.type]};width:${f.radius * 0.3}px;height:${f.radius * 0.3}px"></div>`
-    ).join('');
-}
-
-// ═══════════ AUDIO SYSTEM (32-band + beat detection) ═══════════
-function toggleAudio() {
-    if (audioActive) {
-        audioActive = false;
-        if (audioElement) { audioElement.pause(); audioElement = null; }
-        if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
-        audioAnalyser = null;
-        audioFreqs = { bass: 0, mid: 0, high: 0, overall: 0 };
-        return;
-    }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const src = audioCtx.createMediaStreamSource(stream);
-        audioAnalyser = audioCtx.createAnalyser();
-        audioAnalyser.fftSize = 512;
-        audioAnalyser.smoothingTimeConstant = 0.85;
-        src.connect(audioAnalyser);
-        audioDataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
-        audioActive = true;
-        initAudioViz();
-        toast(T('t_mic'));
-    }).catch(() => toast('❌ Mic denied'));
-}
-
-function loadAudioFile(input) {
-    const file = input.files[0];
-    if (!file) return;
-    if (audioCtx) audioCtx.close().catch(() => {});
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    audioElement = new Audio(URL.createObjectURL(file));
-    audioElement.crossOrigin = 'anonymous';
-    audioElement.loop = true;
-    audioElement.addEventListener('canplay', () => {
-        const src = audioCtx.createMediaElementSource(audioElement);
-        audioAnalyser = audioCtx.createAnalyser();
-        audioAnalyser.fftSize = 512;
-        src.connect(audioAnalyser);
-        audioAnalyser.connect(audioCtx.destination);
-        audioDataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
-        audioActive = true;
-        audioElement.play();
-        initAudioViz();
-        toast('🎵 ' + file.name);
-    }, { once: true });
-}
-
-function initAudioViz() {
-    const viz = document.getElementById('audioViz');
-    viz.innerHTML = '';
-    for (let i = 0; i < 32; i++) {
-        const bar = document.createElement('div');
-        bar.className = 'audBar';
-        bar.style.height = '2px';
-        viz.appendChild(bar);
-    }
-}
-
-function updateAudio() {
-    if (!audioActive || !audioAnalyser) return;
-    audioAnalyser.getByteFrequencyData(audioDataArray);
-    const len = audioDataArray.length;
-    let bass = 0, mid = 0, high = 0;
-    const bassEnd = Math.floor(len * 0.15), midEnd = Math.floor(len * 0.5);
-    const bandSize = Math.floor(len / 32);
-
-    // 32-band analysis
-    for (let b = 0; b < 32; b++) {
-        let sum = 0;
-        for (let i = b * bandSize; i < (b + 1) * bandSize && i < len; i++) sum += audioDataArray[i];
-        audioBands[b] = sum / (bandSize * 255) * config.audioSens;
+      }
     }
 
-    for (let i = 0; i < len; i++) {
-        if (i < bassEnd) bass += audioDataArray[i];
-        else if (i < midEnd) mid += audioDataArray[i];
-        else high += audioDataArray[i];
+    // painter mode persistent trail
+    if (ENG.gameMode === 'painter' && ENG.paintCtx) {
+      ENG.paintCtx.globalAlpha = alpha * 0.3;
+      ENG.paintCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+      ENG.paintCtx.beginPath();
+      ENG.paintCtx.arc(p.x, p.y, sz * 1.5, 0, Math.PI * 2);
+      ENG.paintCtx.fill();
     }
+  }
 
-    const sens = config.audioSens;
-    audioFreqs.bass = (bass / (bassEnd * 255)) * sens;
-    audioFreqs.mid = (mid / ((midEnd - bassEnd) * 255)) * sens;
-    audioFreqs.high = (high / ((len - midEnd) * 255)) * sens;
-    audioFreqs.overall = (audioFreqs.bass + audioFreqs.mid + audioFreqs.high) / 3;
+  flowCtx.globalAlpha = 1;
 
-    // Beat detection
-    beatDetected = false;
-    if (audioFreqs.bass > prevBassEnergy * 1.4 && audioFreqs.bass > 0.3) {
-        beatDetected = true;
-        const now = performance.now();
-        beatTimes.push(now);
-        if (beatTimes.length > 8) beatTimes.shift();
-        if (beatTimes.length >= 4) {
-            let avg = 0;
-            for (let i = 1; i < beatTimes.length; i++) avg += beatTimes[i] - beatTimes[i - 1];
-            bpm = Math.round(60000 / (avg / (beatTimes.length - 1)));
-        }
-    }
-    prevBassEnergy = audioFreqs.bass * 0.7 + prevBassEnergy * 0.3;
+  // connections
+  if (cfg.connections) renderConnections();
 
-    // Update visualization
-    const bars = document.querySelectorAll('.audBar');
-    bars.forEach((bar, i) => {
-        const val = audioBands[i] || 0;
-        bar.style.height = Math.max(2, val * 26) + 'px';
-        bar.style.background = `hsl(${120 - val * 120},100%,${beatDetected ? '80' : '60'}%)`;
-    });
+  // glow layer
+  if (cfg.glow) renderGlow();
 }
 
-// ═══════════ EFFECTS ═══════════
-function drawConnections() {
-    if (config.connections <= 0) { connCtx.clearRect(0, 0, W, H); return; }
-    connCtx.clearRect(0, 0, W, H);
-    const maxDist = config.connections, maxDistSq = maxDist * maxDist;
-    const step = Math.max(1, Math.floor(particles.length / 400));
-    connCtx.lineWidth = 0.3;
-    for (let i = 0; i < particles.length; i += step) {
-        for (let j = i + step; j < particles.length; j += step) {
-            const dx = particles[i].x - particles[j].x, dy = particles[i].y - particles[j].y;
-            if (dx * dx + dy * dy < maxDistSq) {
-                const alpha = 1 - Math.sqrt(dx * dx + dy * dy) / maxDist;
-                const layer = layers[particles[i].li];
-                if (!layer) continue;
-                const rgb = hexToRgb((layer.palette || [layer.color])[0]);
-                connCtx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha * 0.3})`;
-                connCtx.beginPath();
-                connCtx.moveTo(particles[i].x, particles[i].y);
-                connCtx.lineTo(particles[j].x, particles[j].y);
-                connCtx.stroke();
-            }
-        }
+function renderConnections() {
+  if (!connCtx) return;
+  const cd = ENG.config.connDist;
+  const cd2 = cd * cd;
+  connCtx.clearRect(0, 0, W, H);
+  const particles = ENG.particles;
+  const nl = ENG.layers.length;
+
+  // sample up to 500 particles for performance
+  const stride = Math.max(1, Math.floor(particles.length / 500));
+
+  for (let i = 0; i < particles.length; i += stride) {
+    const pi = particles[i];
+    const layerI = ENG.layers[pi.layerIndex % nl];
+    if (!layerI || !layerI.enabled) continue;
+    const rgb = hexToRgb(getPaletteColor(layerI.palette, Math.floor(pi.palIndex * 100), 100));
+
+    for (let j = i + stride; j < Math.min(i + 20 * stride, particles.length); j += stride) {
+      const pj = particles[j];
+      const dx = pi.x - pj.x, dy = pi.y - pj.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < cd2) {
+        const alpha = (1 - d2 / cd2) * 0.3;
+        connCtx.globalAlpha = alpha;
+        connCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+        connCtx.lineWidth = 0.5;
+        connCtx.beginPath();
+        connCtx.moveTo(pi.x, pi.y);
+        connCtx.lineTo(pj.x, pj.y);
+        connCtx.stroke();
+      }
     }
+  }
+  connCtx.globalAlpha = 1;
 }
 
 function renderGlow() {
-    if (config.glowIntensity <= 0) { glowCtx.clearRect(0, 0, W, H); glowCan.style.opacity = 0; return; }
-    glowFrameCount++;
-    if (glowFrameCount % 2) return;
-    glowCtx.clearRect(0, 0, W, H);
-    glowCtx.save();
-    glowCtx.filter = `blur(${config.glowRadius}px) brightness(${1 + config.glowIntensity})`;
-    glowCtx.drawImage(mainCan, 0, 0);
-    glowCtx.restore();
-    glowCan.style.opacity = config.glowIntensity;
+  if (!glowCtx) return;
+  glowCtx.clearRect(0, 0, W, H);
+  // soft glow pass: composite from flowCan
+  glowCtx.globalAlpha = 0.18 + ENG.audioData.bass * 0.1;
+  glowCtx.filter = 'blur(8px)';
+  glowCtx.drawImage(flowCan, 0, 0);
+  glowCtx.filter = 'none';
+  glowCtx.globalAlpha = 1;
+}// ============================================================
+// MAIN ANIMATION LOOP
+// ============================================================
+function loop() {
+  if (!ENG.running) {
+    ENG.animID = requestAnimationFrame(loop);
+    return;
+  }
+
+  const now = performance.now();
+  const dt = Math.min((now - ENG.lastTime) / 1000, 0.05);
+  ENG.lastTime = now;
+  ENG.time += dt;
+  ENG.frameCount++;
+
+  // FPS
+  if (ENG.frameCount % 30 === 0) {
+    ENG.fps = Math.round(1 / dt);
+    const fpsDom = document.getElementById('fpsDisplay');
+    if (fpsDom) fpsDom.textContent = 'FPS: ' + ENG.fps;
+  }
+
+  updateAudio();
+  updateParticles(dt);
+  updateGameMode(dt);
+  render2D();
+
+  // Draw painter canvas on top
+  if (ENG.gameMode === 'painter' && ENG.paintCanvas && flowCtx) {
+    flowCtx.globalAlpha = 1;
+    flowCtx.drawImage(ENG.paintCanvas, 0, 0);
+  }
+
+  ENG.animID = requestAnimationFrame(loop);
 }
 
-function initStars() {
-    stars = [];
-    for (let i = 0; i < 120; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, s: Math.random() * 1.2, sp: 0.02 + Math.random() * 0.04, b: Math.random() });
+// ============================================================
+// AUDIO SYSTEM
+// ============================================================
+let audioCtx = null, analyser = null, audioSource = null;
+let audioElement = null, micStream = null;
+let beatHistory = [], lastBeat = 0, bpmSamples = [];
+
+function initAudioBars() {
+  const wrap = document.getElementById('audioBarWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (let i = 0; i < 32; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'aBar';
+    bar.style.height = '1px';
+    bar.id = 'aBar_' + i;
+    wrap.appendChild(bar);
+  }
 }
 
-function drawStars() {
-    bgCtx.fillStyle = '#020208';
-    bgCtx.fillRect(0, 0, W, H);
-    for (const s of stars) {
-        s.b = 0.2 + 0.8 * Math.abs(Math.sin(time * s.sp * 8 + s.x * 0.01));
-        bgCtx.fillStyle = `rgba(180,190,255,${s.b * 0.25})`;
-        bgCtx.beginPath();
-        bgCtx.arc(s.x, s.y, s.s, 0, Math.PI * 2);
-        bgCtx.fill();
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.8;
+    analyser.connect(audioCtx.destination);
+  }
+}
+
+function startMic() {
+  try {
+    ensureAudioCtx();
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      micStream = stream;
+      if (audioSource) audioSource.disconnect();
+      audioSource = audioCtx.createMediaStreamSource(stream);
+      audioSource.connect(analyser);
+      showToast(t('microphone'));
+    }).catch(err => {
+      showToast('Mic denied: ' + err.message);
+    });
+  } catch (e) {
+    reportError('startMic failed', e);
+  }
+}
+
+function stopAudio() {
+  if (micStream) { micStream.getTracks().forEach(tr => tr.stop()); micStream = null; }
+  if (audioSource) { try { audioSource.disconnect(); } catch(e){} audioSource = null; }
+  if (audioElement) { audioElement.pause(); audioElement = null; }
+  ENG.audioData = { bass:0, mid:0, high:0, spectrum:[], bpm:0, beat:false, gain:1 };
+  showToast(t('stopAudio'));
+}
+
+function startAudioFile(file) {
+  try {
+    ensureAudioCtx();
+    if (audioElement) { audioElement.pause(); }
+    audioElement = new Audio();
+    audioElement.src = URL.createObjectURL(file);
+    audioElement.loop = true;
+    audioElement.crossOrigin = 'anonymous';
+    if (audioSource) audioSource.disconnect();
+    audioSource = audioCtx.createMediaElementSource(audioElement);
+    audioSource.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    audioElement.play();
+    showToast(t('audioFile') + ': ' + file.name);
+  } catch (e) {
+    reportError('startAudioFile failed', e);
+  }
+}
+
+function updateAudio() {
+  if (!analyser) return;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(buf);
+  const gain = ENG.audioData.gain;
+  const n = buf.length;
+  const spec = [];
+  for (let i = 0; i < Math.min(n, 32); i++) {
+    spec.push(Math.min(1, (buf[i] / 255) * gain));
+  }
+  ENG.audioData.spectrum = spec;
+
+  const bass = spec.slice(0, 4).reduce((a, b) => a + b, 0) / 4;
+  const mid  = spec.slice(4, 12).reduce((a, b) => a + b, 0) / 8;
+  const high = spec.slice(12, 24).reduce((a, b) => a + b, 0) / 12;
+
+  ENG.audioData.bass = bass;
+  ENG.audioData.mid  = mid;
+  ENG.audioData.high = high;
+
+  // beat detection
+  beatHistory.push(bass);
+  if (beatHistory.length > 43) beatHistory.shift();
+  const avg = beatHistory.reduce((a, b) => a + b, 0) / beatHistory.length;
+  const now = ENG.time;
+  if (bass > avg * 1.5 && bass > 0.3 && now - lastBeat > 0.25) {
+    ENG.audioData.beat = true;
+    const interval = now - lastBeat;
+    if (interval < 2) {
+      bpmSamples.push(60 / interval);
+      if (bpmSamples.length > 8) bpmSamples.shift();
+      ENG.audioData.bpm = Math.round(bpmSamples.reduce((a, b) => a + b, 0) / bpmSamples.length);
     }
+    lastBeat = now;
+  } else {
+    ENG.audioData.beat = false;
+  }
+
+  // update UI bars
+  for (let i = 0; i < 32; i++) {
+    const bar = document.getElementById('aBar_' + i);
+    if (bar) bar.style.height = Math.max(1, (spec[i] || 0) * 36) + 'px';
+  }
+
+  const vBass = document.getElementById('valBass');
+  const vMid  = document.getElementById('valMid');
+  const vHigh = document.getElementById('valHigh');
+  const vBPM  = document.getElementById('valBPM');
+  const vBeat = document.getElementById('valBeat');
+  if (vBass) vBass.textContent = bass.toFixed(2);
+  if (vMid)  vMid.textContent  = mid.toFixed(2);
+  if (vHigh) vHigh.textContent = high.toFixed(2);
+  if (vBPM)  vBPM.textContent  = ENG.audioData.bpm || '--';
+  if (vBeat) vBeat.textContent  = ENG.audioData.beat ? '●' : '—';
 }
 
-// ═══════════ WebGL RENDERER ═══════════
-function initWebGL() {
-    try {
-        gl = glCan.getContext('webgl2') || glCan.getContext('webgl');
-        if (!gl) return false;
-        const vertSrc = `attribute vec2 aPos;attribute vec3 aCol;attribute float aSize;varying vec3 vCol;void main(){gl_Position=vec4(aPos*2.0-1.0,0,1);gl_Position.y*=-1.0;gl_PointSize=aSize;vCol=aCol;}`;
-        const fragSrc = `precision mediump float;varying vec3 vCol;void main(){float d=length(gl_PointCoord-0.5);if(d>0.5)discard;gl_FragColor=vec4(vCol,(1.0-d*2.0)*0.8);}`;
-        function makeShader(src, type) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; }
-        glProgram = gl.createProgram();
-        gl.attachShader(glProgram, makeShader(vertSrc, gl.VERTEX_SHADER));
-        gl.attachShader(glProgram, makeShader(fragSrc, gl.FRAGMENT_SHADER));
-        gl.linkProgram(glProgram);
-        gl.useProgram(glProgram);
-        glBuffer = gl.createBuffer();
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-        glReady = true;
-        return true;
-    } catch (e) { return false; }
+// ============================================================
+// FORCE FIELDS
+// ============================================================
+const FF_COLORS = {
+  attract: '#00ffc8', repel: '#ff4060',
+  vortex: '#ff00ff', gravity: '#ffb800'
+};
+
+function addForceField(type, x, y) {
+  const ff = {
+    id: Date.now() + Math.random(),
+    type: type || 'attract',
+    x: x !== undefined ? x : W / 2,
+    y: y !== undefined ? y : H / 2,
+    strength: 60,
+    radius: 180,
+    color: FF_COLORS[type] || '#00ffc8',
+    markerEl: null,
+  };
+  ENG.forceFields.push(ff);
+  createFFMarker(ff);
+  buildFFList();
+  return ff;
 }
 
-function renderWebGL() {
-    if (!glReady || !particles.length) return;
-    gl.viewport(0, 0, W, H);
-    gl.clearColor(0.008, 0.008, 0.03, config.trail);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    const data = new Float32Array(particles.length * 6);
-    for (let i = 0; i < particles.length; i++) {
-        const p = particles[i], layer = layers[p.li];
-        if (!layer?.enabled) continue;
-        const pal = layer.palette || [layer.color];
-        const rgb = hexToRgb(pal[p.paletteIndex % pal.length]);
-        let alpha = Math.min(1, (p.life / p.maxLife) * 3) * (layer.opacity || 1) * p.brightness;
-        if (focusedLayerIndex >= 0) alpha = p.li === focusedLayerIndex ? alpha * 1.5 : alpha * 0.15;
-        const j = i * 6;
-        data[j] = p.x / W; data[j + 1] = p.y / H;
-        data[j + 2] = rgb.r / 255 * alpha; data[j + 3] = rgb.g / 255 * alpha; data[j + 4] = rgb.b / 255 * alpha;
-        data[j + 5] = config.lineWidth * p.size * (config.depth3d > 0 ? 0.3 + p.z * 0.7 : 1) * 2;
+function createFFMarker(ff) {
+  const layer = document.getElementById('forceFieldLayer');
+  if (!layer) return;
+  if (ff.markerEl) ff.markerEl.remove();
+
+  const el = document.createElement('div');
+  el.style.cssText = `
+    position:absolute;
+    width:28px;height:28px;
+    border-radius:50%;
+    border:2px solid ${ff.color};
+    background:${ff.color}22;
+    box-shadow:0 0 12px ${ff.color};
+    cursor:move;
+    transform:translate(-50%,-50%);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;user-select:none;
+    left:${ff.x}px;top:${ff.y}px;
+    z-index:6;
+  `;
+  const icons = { attract:'⊕', repel:'⊖', vortex:'⊛', gravity:'⊕' };
+  el.textContent = icons[ff.type] || '●';
+  el.title = ff.type;
+
+  let dragging = false, ox = 0, oy = 0;
+  el.addEventListener('mousedown', e => {
+    dragging = true; ox = e.clientX - ff.x; oy = e.clientY - ff.y;
+    e.stopPropagation();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    ff.x = e.clientX - ox; ff.y = e.clientY - oy;
+    el.style.left = ff.x + 'px'; el.style.top = ff.y + 'px';
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+
+  // touch
+  el.addEventListener('touchstart', e => {
+    dragging = true;
+    const t2 = e.touches[0];
+    ox = t2.clientX - ff.x; oy = t2.clientY - ff.y;
+    e.preventDefault();
+  }, { passive: false });
+  el.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const t2 = e.touches[0];
+    ff.x = t2.clientX - ox; ff.y = t2.clientY - oy;
+    el.style.left = ff.x + 'px'; el.style.top = ff.y + 'px';
+  });
+  el.addEventListener('touchend', () => { dragging = false; });
+
+  layer.appendChild(el);
+  ff.markerEl = el;
+}
+
+function removeForceField(id) {
+  const idx = ENG.forceFields.findIndex(f => f.id === id);
+  if (idx < 0) return;
+  const ff = ENG.forceFields[idx];
+  if (ff.markerEl) ff.markerEl.remove();
+  ENG.forceFields.splice(idx, 1);
+  buildFFList();
+}
+
+function buildFFList() {
+  const list = document.getElementById('ffList');
+  if (!list) return;
+  list.innerHTML = '';
+  ENG.forceFields.forEach(ff => {
+    const row = document.createElement('div');
+    row.className = 'ffItem';
+    const dot = document.createElement('div');
+    dot.className = 'ffDot';
+    dot.style.background = ff.color;
+    dot.style.boxShadow = '0 0 6px ' + ff.color;
+    const label = document.createElement('span');
+    label.textContent = ff.type;
+    label.style.flex = '1';
+
+    const strLabel = document.createElement('input');
+    strLabel.type = 'range'; strLabel.min = 10; strLabel.max = 200;
+    strLabel.value = ff.strength; strLabel.style.width = '60px';
+    strLabel.addEventListener('input', () => { ff.strength = parseFloat(strLabel.value); });
+
+    const radLabel = document.createElement('input');
+    radLabel.type = 'range'; radLabel.min = 40; radLabel.max = 600;
+    radLabel.value = ff.radius; radLabel.style.width = '60px';
+    radLabel.addEventListener('input', () => { ff.radius = parseFloat(radLabel.value); });
+
+    const rm = document.createElement('button');
+    rm.className = 'pBtn danger'; rm.textContent = '✕';
+    rm.style.padding = '2px 6px';
+    rm.addEventListener('click', () => removeForceField(ff.id));
+
+    row.appendChild(dot); row.appendChild(label);
+    row.appendChild(strLabel); row.appendChild(radLabel);
+    row.appendChild(rm);
+    list.appendChild(row);
+  });
+}
+
+// ============================================================
+// GAME MODES
+// ============================================================
+function startGameMode(mode) {
+  exitGameMode();
+  ENG.gameMode = mode;
+
+  const hud = document.getElementById('gameHUD');
+  const hudTitle = document.getElementById('gameHUDTitle');
+  const exitBtn = document.getElementById('btnExitGame');
+  if (hud) hud.style.display = 'block';
+  if (exitBtn) exitBtn.style.display = 'inline-flex';
+
+  switch (mode) {
+    case 'painter': {
+      ENG.paintCanvas = document.createElement('canvas');
+      ENG.paintCanvas.width = W; ENG.paintCanvas.height = H;
+      ENG.paintCtx = ENG.paintCanvas.getContext('2d');
+      if (hudTitle) hudTitle.textContent = t('painter');
+      ENG.mouse.mode = 'paint';
+      break;
     }
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    const posLoc = gl.getAttribLocation(glProgram, 'aPos');
-    const colLoc = gl.getAttribLocation(glProgram, 'aCol');
-    const sizeLoc = gl.getAttribLocation(glProgram, 'aSize');
-    gl.enableVertexAttribArray(posLoc); gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 24, 0);
-    gl.enableVertexAttribArray(colLoc); gl.vertexAttribPointer(colLoc, 3, gl.FLOAT, false, 24, 8);
-    gl.enableVertexAttribArray(sizeLoc); gl.vertexAttribPointer(sizeLoc, 1, gl.FLOAT, false, 24, 20);
-    gl.drawArrays(gl.POINTS, 0, particles.length);
-}
-
-function toggleWebGL() {
-    glMode = !glMode;
-    if (glMode) {
-        if (!glReady && !initWebGL()) { glMode = false; toast('❌ No WebGL'); return; }
-        glCan.style.display = 'block'; glCan.width = W; glCan.height = H;
-        mainCan.style.opacity = '0';
-        document.getElementById('modeBadge').textContent = 'WebGL';
-        document.getElementById('modeBadge').className = 'modeBadge modeGL';
-        document.getElementById('glBtn').classList.add('on');
-        toast(T('t_webgl_on'));
-    } else {
-        glCan.style.display = 'none'; mainCan.style.opacity = '1';
-        document.getElementById('modeBadge').textContent = '2D';
-        document.getElementById('modeBadge').className = 'modeBadge mode2d';
-        document.getElementById('glBtn').classList.remove('on');
-        toast(T('t_webgl_off'));
+    case 'sculptor': {
+      ENG.obstacles = [];
+      if (hudTitle) hudTitle.textContent = t('sculptor');
+      renderObstacleLayer();
+      break;
     }
-}
-
-// ═══════════ GAME MODES ═══════════
-function startGame(mode) {
-    exitGame();
-    gameMode = mode;
-    document.getElementById('gameBar').classList.add('active');
-    const labels = { painter: T('gl_painter'), sculptor: T('gl_sculptor'), battle: T('gl_battle'), colorwar: T('gl_colorwar') };
-    document.getElementById('gameLabel').textContent = labels[mode] || mode;
-    document.getElementById('gameScore').textContent = '0';
-
-    if (mode === 'painter' || mode === 'colorwar') {
-        paintCanvas = document.createElement('canvas');
-        paintCanvas.width = W; paintCanvas.height = H;
-        paintCtx = paintCanvas.getContext('2d');
+    case 'battle': {
+      if (ENG.layers.length < 2) {
+        // add second layer
+        const l = createLayer('noise(x*0.01+t,y*0.01)*6-3', '#ff00ff', 'neon', 0.8, 0.8);
+        compileLayerFn(l);
+        ENG.layers.push(l);
+        buildLayerCards();
+      }
+      if (hudTitle) hudTitle.textContent = t('battle');
+      break;
     }
-    if (mode === 'sculptor') { sculptorDrawing = false; toast('🗿 Click & drag to place obstacles!'); }
-    if (mode === 'battle') {
-        layers.forEach(l => { const el = document.getElementById('box-' + l.id); if (el) el.remove(); });
-        layers = [];
-        addLayer("return atan2(y-cy,x-cx)+sin(r*0.02-t)*2;", '#00ccff');
-        addLayer("return atan2(y-cy,x-cx)+PI+sin(r*0.02+t)*2;", '#ff4466');
-        applyAll();
+    case 'colorwar': {
+      ENG.colorWarCanvas = document.createElement('canvas');
+      ENG.colorWarCanvas.width = W; ENG.colorWarCanvas.height = H;
+      ENG.colorWarCtx = ENG.colorWarCanvas.getContext('2d');
+      initColorWar();
+      if (hudTitle) hudTitle.textContent = t('colorWar');
+      break;
     }
-    toast('🎮 ' + (labels[mode] || mode));
+  }
 }
 
-function exitGame() {
-    gameMode = null; obstacles = [];
-    document.getElementById('gameBar').classList.remove('active');
-    document.getElementById('obsLayer').innerHTML = '';
-    paintCanvas = null; paintCtx = null; colorWarData = null;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
+function exitGameMode() {
+  ENG.gameMode = null;
+  ENG.paintCanvas = null; ENG.paintCtx = null;
+  ENG.colorWarCanvas = null; ENG.colorWarCtx = null;
+  ENG.warOwnership = null;
+  ENG.obstacles = [];
+  const hud = document.getElementById('gameHUD');
+  const exitBtn = document.getElementById('btnExitGame');
+  if (hud) hud.style.display = 'none';
+  if (exitBtn) exitBtn.style.display = 'none';
+  const obsLayer = document.getElementById('obstacleLayer');
+  if (obsLayer) obsLayer.innerHTML = '';
+  // reset mouse mode
+  ENG.mouse.mode = document.getElementById('selMouseMode')?.value || 'push';
 }
 
-function updateGameScore() {
-    if (!gameMode) return;
-    if (gameMode === 'painter') document.getElementById('gameScore').textContent = 'T:' + time.toFixed(0);
-    if (gameMode === 'sculptor') document.getElementById('gameScore').textContent = obstacles.length + ' obs';
-    if (gameMode === 'colorwar' && paintCtx) {
-        const samples = 120, counts = {};
-        let total = 0;
-        for (let i = 0; i < samples; i++) {
-            const sx = Math.floor(Math.random() * W), sy = Math.floor(Math.random() * H);
-            const px = paintCtx.getImageData(sx, sy, 1, 1).data;
-            if (px[3] < 10) continue;
-            let best = -1, bestDist = 1e9;
-            layers.forEach((l, idx) => {
-                for (const c of (l.palette || [l.color])) {
-                    const rgb = hexToRgb(c);
-                    const d = (px[0] - rgb.r) ** 2 + (px[1] - rgb.g) ** 2 + (px[2] - rgb.b) ** 2;
-                    if (d < bestDist) { bestDist = d; best = idx; }
-                }
-            });
-            if (best >= 0 && bestDist < 20000) { counts[best] = (counts[best] || 0) + 1; total++; }
-        }
-        if (total > 0) {
-            let txt = '';
-            Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
-                txt += `<span style="color:${layers[k]?.color || '#fff'};font-weight:bold">${Math.round(v / total * 100)}%</span> `;
-            });
-            document.getElementById('gameScore').innerHTML = txt;
-        }
+function updateGameMode(dt) {
+  if (!ENG.gameMode) return;
+  const hudInfo = document.getElementById('gameHUDInfo');
+  const hudBar  = document.getElementById('gameHUDBarFill');
+
+  switch (ENG.gameMode) {
+    case 'battle': {
+      if (ENG.layers.length < 2) break;
+      let c0 = 0, c1 = 0;
+      const nl = ENG.layers.length;
+      ENG.particles.forEach(p => {
+        if (p.layerIndex % nl === 0) c0++;
+        else c1++;
+      });
+      const total = c0 + c1 || 1;
+      const pct0 = Math.round(c0 / total * 100);
+      const pct1 = 100 - pct0;
+      if (hudInfo) hudInfo.textContent = `Layer 1: ${pct0}%  vs  Layer 2: ${pct1}%`;
+      if (hudBar) hudBar.style.width = pct0 + '%';
+      break;
     }
-    if (gameMode === 'battle' && particles.length > 0) {
-        let left = 0, right = 0;
-        particles.forEach(p => { if (p.x < W / 2) left++; else right++; });
-        document.getElementById('gameScore').innerHTML =
-            `<span style="color:${layers[0]?.color || '#0cf'}">${Math.round(left / particles.length * 100)}%</span> ⚔️ <span style="color:${layers[1]?.color || '#f46'}">${Math.round(right / particles.length * 100)}%</span>`;
+    case 'colorwar': {
+      updateColorWar();
+      break;
     }
-}
-
-function addObstacle(x, y) {
-    const r = 15 + Math.random() * 15;
-    obstacles.push({ x, y, r });
-    document.getElementById('obsLayer').insertAdjacentHTML('beforeend',
-        `<div class="obstacle" style="left:${x - r}px;top:${y - r}px;width:${r * 2}px;height:${r * 2}px"></div>`
-    );
-}
-
-// ═══════════ SVG EXPORT ═══════════
-function exportSVG() {
-    let paths = '';
-    const step = Math.max(1, Math.floor(particles.length / 2000));
-    for (let i = 0; i < particles.length; i += step) {
-        const p = particles[i], layer = layers[p.li];
-        if (!layer?.enabled) continue;
-        const pal = layer.palette || [layer.color];
-        const col = pal[p.paletteIndex % pal.length];
-        const alpha = Math.min(1, (p.life / p.maxLife) * 3) * (layer.opacity || 1) * p.brightness;
-        if (config.trailShape === 'dot' || config.trailShape === 'glow-dot')
-            paths += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${(config.lineWidth * p.size).toFixed(1)}" fill="${col}" opacity="${alpha.toFixed(2)}"/>\n`;
-        else
-            paths += `<line x1="${p.prevX.toFixed(1)}" y1="${p.prevY.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="${col}" stroke-width="${(config.lineWidth * p.size).toFixed(1)}" opacity="${alpha.toFixed(2)}" stroke-linecap="round"/>\n`;
+    case 'sculptor': {
+      if (hudInfo) hudInfo.textContent = `Obstacles: ${ENG.obstacles.length} — Click canvas to place`;
+      break;
     }
-    document.getElementById('svgOutput').value = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n<rect width="100%" height="100%" fill="#020208"/>\n${paths}</svg>`;
-    document.getElementById('svgModal').classList.add('active');
-    toast(T('t_svg'));
-}
-
-function downloadSVG() {
-    downloadBlob(new Blob([document.getElementById('svgOutput').value], { type: 'image/svg+xml' }), 'xoretex.svg');
-}
-
-// ═══════════ GLSL SHADER EXPORT ═══════════
-function exportShader() {
-    const code = layers[0] ? document.getElementById('code-' + layers[0].id)?.value || '' : 'sin(r*0.02-t)';
-    let body = code.replace(/return\s+/g, '').replace(/;$/, '')
-        .replace(/Math\./g, '').replace(/PI/g, '3.14159')
-        .replace(/noise\([^)]+\)/g, 'fract(sin(dot(uv,vec2(12.9898,78.233)))*43758.5453)')
-        .replace(/atan2\(/g, 'atan(')
-        .replace(/\bx\b/g, 'p.x').replace(/\by\b/g, 'p.y')
-        .replace(/\br\b/g, 'length(p-c)')
-        .replace(/\bt\b/g, 'iTime')
-        .replace(/\bcx\b/g, 'c.x').replace(/\bcy\b/g, 'c.y');
-
-    document.getElementById('glslOutput').value =
-`// Xoretex Xhaos Live — Auto-generated GLSL
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = fragCoord / iResolution.xy;
-    vec2 p = fragCoord, c = iResolution.xy * 0.5;
-    float angle = ${body};
-    vec2 flow = vec2(cos(angle), sin(angle));
-    vec3 col = 0.5 + 0.5 * cos(angle + vec3(0, 2.094, 4.189));
-    float intensity = 0.5 + 0.5 * sin(length(p - c) * 0.01 - iTime);
-    fragColor = vec4(col * intensity, 1.0);
-}`;
-    document.getElementById('glslModal').classList.add('active');
-    toast(T('t_glsl'));
-}
-
-// ═══════════ ANIMATION LOOP ═══════════
-function animate() {
-    if (!paused) {
-        // Update all particles
-        for (let i = 0; i < particles.length; i++) particles[i].update();
-
-        if (glMode && glReady) {
-            renderWebGL();
-        } else {
-            // Trail fade
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.fillStyle = `rgba(2,2,8,${config.trail})`;
-            ctx.fillRect(0, 0, W, H);
-            ctx.globalCompositeOperation = config.blendMode;
-
-            // Draw with symmetry
-            if (config.symmetry > 1) {
-                const cx = W / 2, cy = H / 2;
-                const total = particles.length;
-                const perSeg = Math.floor(total / config.symmetry);
-                for (let s = 0; s < config.symmetry; s++) {
-                    ctx.save();
-                    ctx.translate(cx, cy);
-                    ctx.rotate(Math.PI * 2 / config.symmetry * s);
-                    ctx.translate(-cx, -cy);
-                    for (let i = s * perSeg; i < Math.min((s + 1) * perSeg, total); i++) {
-                        particles[i].draw(ctx);
-                    }
-                    ctx.restore();
-                }
-            } else {
-                for (let i = 0; i < particles.length; i++) particles[i].draw(ctx);
-            }
-
-            ctx.globalCompositeOperation = 'source-over';
-
-            // Game overlays
-            if (gameMode === 'painter' && paintCanvas) {
-                ctx.globalAlpha = 0.6;
-                ctx.drawImage(paintCanvas, 0, 0);
-                ctx.globalAlpha = 1;
-            }
-            if (gameMode === 'colorwar' && paintCanvas) {
-                ctx.globalCompositeOperation = 'lighter';
-                ctx.globalAlpha = 0.85;
-                ctx.drawImage(paintCanvas, 0, 0);
-                ctx.globalAlpha = 1;
-                ctx.globalCompositeOperation = 'source-over';
-                paintCtx.fillStyle = 'rgba(0,0,0,0.002)';
-                paintCtx.fillRect(0, 0, W, H);
-            }
-        }
-
-        // Post effects
-        renderGlow();
-        drawConnections();
-        updateAudio();
-
-        // Color cycle preview
-        const cycPrev = document.getElementById('cyclePreview');
-        if (cycPrev) cycPrev.style.opacity = config.colorCycle > 0 ? '0.6' : '0';
-
-        // Advance time
-        time += 0.01 * config.timeSpeed;
-
-        // Game score updates
-        if (gameMode && fpsCounter % 30 === 0) updateGameScore();
+    case 'painter': {
+      if (hudInfo) hudInfo.textContent = 'Painting... move mouse to create trails';
+      break;
     }
-
-    // FPS calculation
-    fpsCounter++;
-    const now = performance.now();
-    if (now - fpsLastTime >= 600) {
-        fpsValue = Math.round(fpsCounter * 1000 / (now - fpsLastTime));
-        fpsCounter = 0;
-        fpsLastTime = now;
-        updateStats();
-    }
-
-    requestAnimationFrame(animate);
+  }
 }
 
-// ═══════════ RECORDING ═══════════
-function toggleRecord() { if (!isRecording) startRecording(); else stopRecording(); }
-
-function startRecording() {
-    let mime = 'video/webm';
-    for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
-        if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
-    }
-    try {
-        const stream = mainCan.captureStream(30);
-        recordChunks = [];
-        mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
-        mediaRecorder.ondataavailable = e => { if (e.data?.size > 0) recordChunks.push(e.data); };
-        mediaRecorder.onstop = () => {
-            if (recordChunks.length) {
-                const blob = new Blob(recordChunks, { type: 'video/webm' });
-                downloadBlob(blob, `xoretex-${Date.now()}.webm`);
-                toast(T('t_rec_saved'));
-            }
-        };
-        mediaRecorder.start(500);
-        isRecording = true;
-        recordStartTime = Date.now();
-        document.getElementById('recProg').style.display = 'block';
-        document.getElementById('recTotal').textContent = formatTime(config.recDuration);
-        recordTimerInterval = setInterval(() => {
-            const elapsed = (Date.now() - recordStartTime) / 1000;
-            document.getElementById('recTimer').textContent = formatTime(elapsed);
-            document.getElementById('recBar').style.width = (elapsed / config.recDuration * 100) + '%';
-        }, 500);
-        document.getElementById('recActBtn').classList.add('recOn');
-        document.getElementById('recLabel').textContent = '⏹';
-        document.getElementById('recBtnH').classList.add('on');
-        toast(T('t_rec_start'));
-        setTimeout(() => { if (isRecording) stopRecording(); }, config.recDuration * 1000);
-    } catch (e) { toast(T('t_err') + e.message); }
+function initColorWar() {
+  if (!ENG.colorWarCanvas) return;
+  ENG.colorWarCtx.clearRect(0, 0, W, H);
 }
 
-function stopRecording() {
-    if (mediaRecorder?.state !== 'inactive') mediaRecorder.stop();
-    isRecording = false;
-    clearInterval(recordTimerInterval);
-    document.getElementById('recProg').style.display = 'none';
-    document.getElementById('recActBtn').classList.remove('recOn');
-    document.getElementById('recLabel').textContent = T('act_rec');
-    document.getElementById('recBtnH').classList.remove('on');
+function updateColorWar() {
+  if (!ENG.colorWarCtx) return;
+  const nl = ENG.layers.length;
+  if (nl < 1) return;
+  // paint soft radial blobs at particle positions
+  for (let i = 0; i < ENG.particles.length; i += 4) {
+    const p = ENG.particles[i];
+    const li = p.layerIndex % nl;
+    const layer = ENG.layers[li];
+    if (!layer || !layer.enabled) continue;
+    const rgb = hexToRgb(getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100));
+    const r2 = 20 + ENG.audioData.bass * 10;
+    const grd = ENG.colorWarCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r2);
+    grd.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0.04)`);
+    grd.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+    ENG.colorWarCtx.fillStyle = grd;
+    ENG.colorWarCtx.beginPath();
+    ENG.colorWarCtx.arc(p.x, p.y, r2, 0, Math.PI * 2);
+    ENG.colorWarCtx.fill();
+  }
 }
 
-function formatTime(seconds) {
-    seconds = Math.floor(seconds);
-    return String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+function renderColorWar() {
+  if (!ENG.colorWarCanvas || !flowCtx) return;
+  flowCtx.globalAlpha = 0.35;
+  flowCtx.drawImage(ENG.colorWarCanvas, 0, 0);
+  flowCtx.globalAlpha = 1;
 }
 
-// ═══════════ EXPORT UTILITIES ═══════════
-function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+function renderObstacleLayer() {
+  const layer = document.getElementById('obstacleLayer');
+  if (!layer) return;
+  layer.innerHTML = '';
+  ENG.obstacles.forEach(ob => {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position:absolute;
+      left:${ob.x - ob.r}px;top:${ob.y - ob.r}px;
+      width:${ob.r * 2}px;height:${ob.r * 2}px;
+      border-radius:50%;
+      background:rgba(255,180,0,0.18);
+      border:1px solid rgba(255,180,0,0.5);
+      pointer-events:none;
+    `;
+    layer.appendChild(el);
+  });
 }
 
-function dataURLToBlob(dataURL) {
-    const arr = dataURL.split(',');
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new Blob([u8arr], { type: mime });
+// ============================================================
+// SCULPTOR CLICK
+// ============================================================
+function placeSculptorObstacle(x, y) {
+  ENG.obstacles.push({ x, y, r: 24 + Math.random() * 20 });
+  renderObstacleLayer();
 }
 
-function exportHiRes() {
-    const exp = document.createElement('canvas');
-    exp.width = W * 2; exp.height = H * 2;
-    const ectx = exp.getContext('2d');
-    ectx.drawImage(bgCan, 0, 0, W, H, 0, 0, exp.width, exp.height);
-    ectx.drawImage(mainCan, 0, 0, W, H, 0, 0, exp.width, exp.height);
-    if (config.glowIntensity > 0) {
-        ectx.globalAlpha = config.glowIntensity;
-        ectx.globalCompositeOperation = 'screen';
-        ectx.drawImage(glowCan, 0, 0, W, H, 0, 0, exp.width, exp.height);
-        ectx.globalAlpha = 1;
-        ectx.globalCompositeOperation = 'source-over';
-    }
-    ectx.font = '18px Orbitron';
-    ectx.fillStyle = 'rgba(0,255,136,0.1)';
-    ectx.fillText('Xoretex Xhaos Live', 22, exp.height - 22);
-    downloadBlob(dataURLToBlob(exp.toDataURL('image/png', 1)), `xoretex-${Date.now()}.png`);
-    toast(T('t_screenshot'));
+// ============================================================
+// EXPORT TOOLS
+// ============================================================
+function exportScreenshot() {
+  try {
+    const offscreen = document.createElement('canvas');
+    offscreen.width = W; offscreen.height = H;
+    const ctx2 = offscreen.getContext('2d');
+    ctx2.drawImage(bgCan, 0, 0);
+    ctx2.drawImage(flowCan, 0, 0);
+    if (ENG.config.glow) ctx2.drawImage(glowCan, 0, 0);
+    if (ENG.config.connections) ctx2.drawImage(connCan, 0, 0);
+    const link = document.createElement('a');
+    link.download = 'xoretex_' + Date.now() + '.png';
+    link.href = offscreen.toDataURL('image/png');
+    link.click();
+    showToast(t('toastScreenshot'));
+  } catch (e) { reportError('screenshot failed', e); }
 }
 
 function export4K() {
-    const exp = document.createElement('canvas');
-    exp.width = 3840; exp.height = 2160;
-    const ectx = exp.getContext('2d');
-    ectx.drawImage(bgCan, 0, 0, W, H, 0, 0, 3840, 2160);
-    ectx.drawImage(mainCan, 0, 0, W, H, 0, 0, 3840, 2160);
-    ectx.font = '34px Orbitron';
-    ectx.fillStyle = 'rgba(0,255,136,0.1)';
-    ectx.fillText('Xoretex Xhaos Live', 38, 2128);
-    downloadBlob(dataURLToBlob(exp.toDataURL('image/png', 1)), `xoretex-4K-${Date.now()}.png`);
-    toast(T('t_4k'));
+  try {
+    const W4 = 3840, H4 = 2160;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = W4; offscreen.height = H4;
+    const ctx2 = offscreen.getContext('2d');
+    ctx2.fillStyle = '#0a0a0f';
+    ctx2.fillRect(0, 0, W4, H4);
+    ctx2.drawImage(bgCan, 0, 0, W4, H4);
+    ctx2.drawImage(flowCan, 0, 0, W4, H4);
+    if (ENG.config.glow) ctx2.drawImage(glowCan, 0, 0, W4, H4);
+    const link = document.createElement('a');
+    link.download = 'xoretex_4k_' + Date.now() + '.png';
+    link.href = offscreen.toDataURL('image/png');
+    link.click();
+    showToast(t('toast4K'));
+  } catch (e) { reportError('4K export failed', e); }
 }
 
-// ═══════════ SAVE / LOAD ═══════════
+function exportSVG() {
+  try {
+    const sample = ENG.particles.slice(0, 600);
+    const nl = ENG.layers.length;
+    let svgLines = [];
+    sample.forEach(p => {
+      const li = p.layerIndex % nl;
+      const layer = ENG.layers[li];
+      if (!layer) return;
+      const color = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
+      const dx = p.x - p.px, dy = p.y - p.py;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        svgLines.push(`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1" fill="${color}" opacity="${(p.brightness * layer.opacity).toFixed(2)}"/>`);
+      } else {
+        svgLines.push(`<line x1="${p.px.toFixed(1)}" y1="${p.py.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="${color}" stroke-width="1" opacity="${(p.brightness * layer.opacity).toFixed(2)}"/>`);
+      }
+    });
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#0a0a0f">\n${svgLines.join('\n')}\n</svg>`;
+    document.getElementById('svgOutput').textContent = svg;
+    showModal('svgModal');
+    window._svgCache = svg;
+  } catch (e) { reportError('SVG export failed', e); }
+}
+
+function exportGLSL() {
+  try {
+    const layer = ENG.layers[0];
+    const eq = layer ? layer.eq : 'sin(x*0.02+t)*cos(y*0.02+t)*2';
+    const glsl = `// Xoretex Xhaos Cube — GLSL Approximation
+// Auto-generated from formula: ${eq}
+// Paste into Shadertoy or any GLSL fragment shader
+
+precision mediump float;
+uniform float iTime;
+uniform vec2 iResolution;
+
+#define PI 3.14159265359
+
+float noise(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy;
+  float x = uv.x;
+  float y = uv.y;
+  float t = iTime;
+  float cx = iResolution.x * 0.5;
+  float cy = iResolution.y * 0.5;
+  float r = length(uv - vec2(cx, cy));
+
+  // Original JS formula adapted to GLSL:
+  // ${eq}
+  float angle = sin(x * 0.02 + t) * cos(y * 0.02 + t) * 2.0;
+
+  vec2 dir = vec2(cos(angle), sin(angle));
+  float intensity = 0.5 + 0.5 * sin(dot(uv * 0.01, dir) * 6.0 + t);
+
+  vec3 col = vec3(0.0, intensity, intensity * 0.7);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+    document.getElementById('glslOutput').textContent = glsl;
+    showModal('glslModal');
+    window._glslCache = glsl;
+  } catch (e) { reportError('GLSL export failed', e); }
+}
+
 function saveConfig() {
-    const data = {
-        version: 7,
-        lang: currentLang,
-        config: { ...config },
-        motionBlur: motionBlurEnabled,
-        fieldPulse: fieldPulseEnabled,
-        glMode: glMode,
-        layers: layers.map(l => ({
-            code: document.getElementById('code-' + l.id)?.value || '',
-            color: document.getElementById('clr-' + l.id)?.value || '',
-            opacity: parseFloat(document.getElementById('op-' + l.id)?.value || 1),
-            weight: parseFloat(document.getElementById('wt-' + l.id)?.value || 1),
-            palette: l.paletteName
-        })),
-        fields: forceFields
+  try {
+    const cfg = {
+      version: '1.0',
+      language: currentLang,
+      viewMode: ENG.viewMode,
+      config: ENG.config,
+      layers: ENG.layers.map(l => ({
+        eq: l.eq, color: l.color, palette: l.palette,
+        opacity: l.opacity, weight: l.weight, enabled: l.enabled,
+      })),
+      forceFields: ENG.forceFields.map(f => ({
+        type: f.type, x: f.x, y: f.y,
+        strength: f.strength, radius: f.radius,
+      })),
     };
-    downloadBlob(
-        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-        `xoretex-${Date.now()}.json`
-    );
-    toast(T('t_saved'));
+    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.download = 'xoretex_config_' + Date.now() + '.json';
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    showToast(t('toastSaved'));
+  } catch (e) { reportError('saveConfig failed', e); }
 }
 
-function loadConfigFile() {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.json';
-    input.onchange = e => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = ev => {
-            try {
-                const data = JSON.parse(ev.target.result);
-
-                // Clear existing
-                layers.forEach(l => {
-                    const el = document.getElementById('box-' + l.id);
-                    if (el) el.remove();
-                });
-                layers = []; forceFields = []; focusedLayerIndex = -1;
-
-                // Restore language
-                if (data.lang) { currentLang = data.lang; applyLanguage(); }
-
-                // Restore config
-                if (data.config) {
-                    Object.entries(data.config).forEach(([k, v]) => {
-                        config[k] = v;
-                        const slider = document.getElementById(k);
-                        if (slider) {
-                            slider.value = v;
-                            const valEl = document.getElementById('val-' + k);
-                            if (valEl) valEl.textContent = v;
-                        }
-                    });
-                }
-
-                // Restore layers
-                if (data.layers) {
-                    data.layers.forEach(l => {
-                        addLayer(l.code, l.color);
-                        if (l.palette && l.palette !== 'mono') {
-                            const last = layers[layers.length - 1];
-                            const sel = document.getElementById('palsel-' + last.id);
-                            if (sel) { sel.value = l.palette; changePalette(last.id, l.palette); }
-                        }
-                    });
-                }
-
-                // Restore fields
-                if (data.fields) {
-                    forceFields = data.fields.map(f => ({ ...f, id: 'F' + Date.now() + Math.random() }));
-                    renderFieldMarkers();
-                }
-
-                applyAll();
-                toast(T('t_loaded'));
-            } catch (err) {
-                toast(T('t_err') + err.message);
-            }
-        };
-        reader.readAsText(file);
-    };
-    input.click();
-}
-
-// ═══════════ RANDOMIZE ═══════════
-function randomizeAll() {
-    layers.forEach(l => {
-        const el = document.getElementById('box-' + l.id);
-        if (el) el.remove();
-    });
-    layers = [];
-    focusedLayerIndex = -1;
-
-    const palNames = Object.keys(PALETTES);
-    const numLayers = 2 + Math.floor(Math.random() * 3);
-
-    for (let i = 0; i < numLayers; i++) {
-        addLayer(FORMULA_LIBRARY[Math.floor(Math.random() * FORMULA_LIBRARY.length)].code);
-        const last = layers[layers.length - 1];
-        const randomPal = palNames[Math.floor(Math.random() * palNames.length)];
-        const sel = document.getElementById('palsel-' + last.id);
-        if (sel) { sel.value = randomPal; changePalette(last.id, randomPal); }
-    }
-
-    config.speed = +(0.5 + Math.random() * 4).toFixed(1);
-    config.trail = +(0.01 + Math.random() * 0.1).toFixed(3);
-    config.friction = +(0.88 + Math.random() * 0.11).toFixed(3);
-    config.timeSpeed = +(0.5 + Math.random() * 2).toFixed(1);
-
-    ['speed', 'trail', 'friction', 'timeSpeed'].forEach(k => {
-        const slider = document.getElementById(k);
-        if (slider) {
-            slider.value = config[k];
-            const valEl = document.getElementById('val-' + k);
-            if (valEl) valEl.textContent = config[k];
-        }
-    });
-
-    applyAll();
-    toast(T('t_random'));
-}
-
-// ═══════════ CLEAR ═══════════
-function clearCanvas() {
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#020208';
-    ctx.fillRect(0, 0, W, H);
-    glowCtx.clearRect(0, 0, W, H);
-    connCtx.clearRect(0, 0, W, H);
-    if (glReady) { gl.clearColor(0.008, 0.008, 0.03, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
-    particles.forEach(p => p.reset());
-    toast(T('t_cleared'));
-}
-
-// ═══════════ EVENT HANDLERS ═══════════
-const touchRing = document.getElementById('touchRing');
-
-mainCan.addEventListener('mousemove', e => {
-    pointer.x = e.clientX; pointer.y = e.clientY;
-    pointer.on = true; pointer.repel = e.shiftKey;
-    if (draggingField) { draggingField.x = e.clientX; draggingField.y = e.clientY; renderFieldMarkers(); }
-    if (sculptorDrawing && gameMode === 'sculptor') addObstacle(e.clientX, e.clientY);
-});
-
-mainCan.addEventListener('mouseleave', () => { pointer.on = false; });
-
-mainCan.addEventListener('mousedown', e => {
-    if (placingFieldType) return;
-    if (gameMode === 'sculptor') { sculptorDrawing = true; addObstacle(e.clientX, e.clientY); return; }
-    forceFields.forEach(f => {
-        if (Math.sqrt((e.clientX - f.x) ** 2 + (e.clientY - f.y) ** 2) < 20) draggingField = f;
-    });
-});
-
-mainCan.addEventListener('mouseup', () => { draggingField = null; sculptorDrawing = false; });
-
-mainCan.addEventListener('click', e => {
-    if (draggingField || sculptorDrawing) return;
-    if (placingFieldType) { placeField(e.clientX, e.clientY, placingFieldType); return; }
-    if (config.mouseForce > 0) {
-        for (let i = 0; i < Math.min(50, particles.length); i++) {
-            const idx = Math.floor(Math.random() * particles.length);
-            const p = particles[idx];
-            const angle = Math.random() * Math.PI * 2;
-            p.x = e.clientX; p.y = e.clientY;
-            p.vx = Math.cos(angle) * (4 + Math.random() * 8);
-            p.vy = Math.sin(angle) * (4 + Math.random() * 8);
-            p.life = p.maxLife;
-        }
-    }
-});
-
-mainCan.addEventListener('touchstart', e => {
-    e.preventDefault();
-    const tc = e.touches[0];
-    pointer.x = tc.clientX; pointer.y = tc.clientY;
-    pointer.on = true; pointer.repel = e.touches.length >= 2;
-    touchRing.style.left = tc.clientX + 'px';
-    touchRing.style.top = tc.clientY + 'px';
-    touchRing.style.width = touchRing.style.height = config.mouseRadius * 2 + 'px';
-    touchRing.classList.add('on');
-    touchRing.classList.toggle('repel', pointer.repel);
-    if (placingFieldType) placeField(tc.clientX, tc.clientY, placingFieldType);
-    if (gameMode === 'sculptor') addObstacle(tc.clientX, tc.clientY);
-}, { passive: false });
-
-mainCan.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const tc = e.touches[0];
-    pointer.x = tc.clientX; pointer.y = tc.clientY;
-    pointer.repel = e.touches.length >= 2;
-    touchRing.style.left = tc.clientX + 'px';
-    touchRing.style.top = tc.clientY + 'px';
-    touchRing.classList.toggle('repel', pointer.repel);
-    if (gameMode === 'sculptor') addObstacle(tc.clientX, tc.clientY);
-}, { passive: false });
-
-mainCan.addEventListener('touchend', e => {
-    if (!e.touches.length) {
-        pointer.on = false;
-        touchRing.classList.remove('on', 'repel');
-    }
-});
-
-document.addEventListener('keydown', e => {
-    const tag = e.target.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
-
-    switch (e.key) {
-        case 'Tab': e.preventDefault(); togglePanel(); break;
-        case ' ': e.preventDefault(); togglePause(); break;
-        case 's': case 'S': exportHiRes(); break;
-        case 'c': case 'C': clearCanvas(); break;
-        case 'r': case 'R': randomizeAll(); break;
-        case 'f': case 'F': toggleFullscreen(); break;
-        case 'h': case 'H': showHelp(); break;
-        case 'l': case 'L': toggleLang(); break;
-        case 'm': case 'M': toggleMotionBlur(); break;
-        case 'g': case 'G': toggleWebGL(); break;
-        case '1': addField('attract'); break;
-        case '2': addField('repel'); break;
-        case '3': addField('vortex'); break;
-        case '4': addField('gravity'); break;
-        case '0': clearFields(); break;
-        case 'Escape':
-            closeHelp();
-            focusedLayerIndex = -1;
-            document.querySelectorAll('.layerBox').forEach(b => b.classList.remove('focused'));
-            if (placingFieldType) { placingFieldType = null; mainCan.style.cursor = 'default'; }
-            if (gameMode) exitGame();
-            break;
-    }
-});
-
-// ═══════════ RESIZE ═══════════
-let resizeTimer;
-window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-        W = mainCan.width = bgCan.width = glowCan.width = connCan.width = window.innerWidth;
-        H = mainCan.height = bgCan.height = glowCan.height = connCan.height = window.innerHeight;
-        if (glReady) { glCan.width = W; glCan.height = H; }
-        if (W <= 768 && config.particleCount > 4000) {
-            config.particleCount = 3000;
-            const slider = document.getElementById('particleCount');
-            if (slider) { slider.value = 3000; const v = document.getElementById('val-particleCount'); if (v) v.textContent = '3000'; }
-        }
-        initStars(); drawStars(); renderFieldMarkers(); applyAll();
-    }, 150);
-});
-
-// ═══════════ BOOT ═══════════
-(function boot() {
-    // Initialize canvas sizes
-    W = mainCan.width = bgCan.width = glowCan.width = connCan.width = window.innerWidth;
-    H = mainCan.height = bgCan.height = glowCan.height = connCan.height = window.innerHeight;
-    glCan.width = W; glCan.height = H;
-
-    // Mobile optimization
-    if (W <= 768 || 'ontouchstart' in window) {
-        config.particleCount = 2500;
-        config.glowRadius = 5;
-        const slider = document.getElementById('particleCount');
-        if (slider) { slider.value = 2500; const v = document.getElementById('val-particleCount'); if (v) v.textContent = '2500'; }
-    }
-
-    // Restore saved language
+function loadConfig(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
     try {
-        const savedLang = localStorage.getItem('xoretex_lang');
-        if (savedLang && LANG[savedLang]) currentLang = savedLang;
-    } catch (e) {}
+      const cfg = JSON.parse(ev.target.result);
+      if (cfg.language) { currentLang = cfg.language; localStorage.setItem('xoretex_lang', currentLang); }
+      if (cfg.config) Object.assign(ENG.config, cfg.config);
+      if (cfg.layers) {
+        ENG.layers = cfg.layers.map(l => {
+          const layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
+          layer.enabled = l.enabled !== undefined ? l.enabled : true;
+          compileLayerFn(layer);
+          return layer;
+        });
+      }
+      if (cfg.forceFields) {
+        ENG.forceFields.forEach(f => { if (f.markerEl) f.markerEl.remove(); });
+        ENG.forceFields = [];
+        cfg.forceFields.forEach(f => addForceField(f.type, f.x, f.y));
+      }
+      if (cfg.viewMode) setViewMode(cfg.viewMode);
+      applyLocalization();
+      buildLayerCards();
+      syncControlsFromConfig();
+      spawnParticles();
+      showToast(t('toastLoaded'));
+    } catch (e) { reportError('loadConfig parse error', e); }
+  };
+  reader.readAsText(file);
+}
 
-    // Apply language
-    applyLanguage();
+// ============================================================
+// VIDEO RECORDING
+// ============================================================
+function startRecording() {
+  try {
+    if (ENG.mediaRecorder) stopRecording();
+    const stream = flowCan.captureStream(30);
+    ENG.recChunks = [];
+    ENG.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+    ENG.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) ENG.recChunks.push(e.data); };
+    ENG.mediaRecorder.onstop = saveRecording;
+    ENG.mediaRecorder.start(100);
+    ENG.recStartTime = Date.now();
 
-    // Initialize WebGL
-    initWebGL();
+    const recBar = document.getElementById('recBar');
+    if (recBar) recBar.classList.add('show');
+    const recBtn = document.getElementById('btnRecord');
+    if (recBtn) recBtn.classList.add('active');
 
-    // Add default layers
-    addLayer("return sin(0.015*x+t)*cos(0.02*y);", '#00ff88');
-    addLayer("return atan2(y-cy,x-cx)+PI/2+sin(r*0.01-t)*0.5;", '#00ccff');
+    ENG.recTimerID = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - ENG.recStartTime) / 1000);
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const ss = String(elapsed % 60).padStart(2, '0');
+      const recTime = document.getElementById('recTime');
+      if (recTime) recTime.textContent = mm + ':' + ss;
+      const fill = document.getElementById('recProgressFill');
+      if (fill) fill.style.width = Math.min(100, elapsed / 120 * 100) + '%';
+    }, 1000);
 
-    // Sync live injection
-    document.getElementById('liveCode').value = "return sin(0.015*x+t)*cos(0.02*y);";
-    document.getElementById('injectDot').className = 'injDot ok';
+    showToast(t('toastRecStart'));
+  } catch (e) { reportError('recording failed', e); showToast('Recording not supported in this browser'); }
+}
 
-    // Initialize all systems
-    initAudioViz();
-    initStars();
-    drawStars();
-    applyAll();
-    animate();
+function stopRecording() {
+  if (ENG.mediaRecorder && ENG.mediaRecorder.state !== 'inactive') {
+    ENG.mediaRecorder.stop();
+  }
+  if (ENG.recTimerID) { clearInterval(ENG.recTimerID); ENG.recTimerID = null; }
+  const recBar = document.getElementById('recBar');
+  if (recBar) recBar.classList.remove('show');
+  const recBtn = document.getElementById('btnRecord');
+  if (recBtn) recBtn.classList.remove('active');
+  ENG.mediaRecorder = null;
+  showToast(t('toastRecStop'));
+}
 
-    // Background star refresh
-    setInterval(() => { if (!paused) drawStars(); }, 120);
+function saveRecording() {
+  const blob = new Blob(ENG.recChunks, { type: 'video/webm' });
+  const link = document.createElement('a');
+  link.download = 'xoretex_' + Date.now() + '.webm';
+  link.href = URL.createObjectURL(blob);
+  link.click();
+  ENG.recChunks = [];
+}
 
-    // First visit help
-    try {
-        if (localStorage.getItem('xnh') !== '1') setTimeout(() => showHelp(), 800);
-    } catch (e) { setTimeout(() => showHelp(), 800); }
+// ============================================================
+// VIEW MODE
+// ============================================================
+function setViewMode(mode) {
+  ENG.viewMode = mode;
+  document.querySelectorAll('.modeTab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
 
-    // Welcome
-    setTimeout(() => toast(T('t_ready')), 500);
+  const ids2d = ['flowCan', 'glowCan', 'connCan'];
+  const ids3d = ['cubeCan'];
 
-    // Console log
-    console.log(
-        `%c⚡ Xoretex Xhaos Live v7.0`,
-        'color:#00ff88;font-size:18px;font-weight:bold',
-        `\nWebGL: ${glReady ? '✅' : '❌'}  |  Lang: ${currentLang}  |  Particles: ${config.particleCount}`
-    );
-})();
+  ids2d.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (mode === '3d') ? 'none' : '';
+  });
+  ids3d.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (mode === '2d') ? 'none' : '';
+  });
+
+  // notify cube3d if present
+  if (window.setCubeVisible) {
+    window.setCubeVisible(mode !== '2d');
+  }
+}// ============================================================
+// PANEL BUILDING
+// ============================================================
+function buildPanel() {
+  buildPresetButtons();
+  buildSnippetGrid();
+  buildLayerCards();
+  buildFFList();
+  bindPanelControls();
+  bindSectionToggles();
+}
+
+function buildPresetButtons() {
+  const container = document.getElementById('presetBtns');
+  if (!container) return;
+  container.innerHTML = '';
+  PRESETS.forEach((preset, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'pBtn';
+    btn.textContent = preset.name;
+    btn.addEventListener('click', () => applyPreset(PRESETS[idx]));
+    container.appendChild(btn);
+  });
+}
+
+function applyPreset(preset) {
+  if (!preset) return;
+  if (preset.config) Object.assign(ENG.config, preset.config);
+  if (preset.layers) {
+    ENG.layers = preset.layers.map(l => {
+      const layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
+      compileLayerFn(layer);
+      return layer;
+    });
+  }
+  syncControlsFromConfig();
+  buildLayerCards();
+  spawnParticles();
+  showToast('Preset: ' + preset.name);
+}
+
+function buildSnippetGrid() {
+  const grid = document.getElementById('snippetGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  SNIPPETS.forEach(snip => {
+    const btn = document.createElement('button');
+    btn.className = 'pBtn snippetBtn';
+    btn.textContent = snip.name;
+    btn.title = snip.code;
+    btn.addEventListener('click', () => {
+      const ta = document.getElementById('formulaInput');
+      if (ta) ta.value = snip.code;
+      applyFormulaToLayer(snip.code);
+    });
+    grid.appendChild(btn);
+  });
+}
+
+function buildLayerCards() {
+  const container = document.getElementById('layerCards');
+  if (!container) return;
+  container.innerHTML = '';
+
+  ENG.layers.forEach((layer, idx) => {
+    const card = document.createElement('div');
+    card.className = 'layerCard' + (ENG.focusedLayer === idx ? ' focused' : '');
+    card.id = 'layerCard_' + idx;
+
+    // header
+    const header = document.createElement('div');
+    header.className = 'layerTitle';
+    header.style.color = layer.color;
+    header.textContent = 'Layer ' + (idx + 1);
+    header.addEventListener('click', () => {
+      ENG.focusedLayer = (ENG.focusedLayer === idx) ? -1 : idx;
+      buildLayerCards();
+    });
+
+    // enabled
+    const enRow = document.createElement('label');
+    enRow.className = 'pCheck';
+    const enChk = document.createElement('input');
+    enChk.type = 'checkbox'; enChk.checked = layer.enabled;
+    enChk.addEventListener('change', () => { layer.enabled = enChk.checked; });
+    const enSpan = document.createElement('span'); enSpan.textContent = 'Enabled';
+    enRow.appendChild(enChk); enRow.appendChild(enSpan);
+
+    // equation
+    const eqLabel = document.createElement('label');
+    eqLabel.className = 'pLabel'; eqLabel.textContent = t('layerEquation');
+    const eqTa = document.createElement('textarea');
+    eqTa.className = 'pTextarea'; eqTa.value = layer.eq;
+    eqTa.rows = 2; eqTa.spellcheck = false;
+    const eqInd = document.createElement('span');
+    eqInd.className = 'indicator ' + (layer.valid ? 'valid' : 'invalid');
+
+    eqTa.addEventListener('input', () => {
+      layer.eq = eqTa.value;
+      const ok = compileLayerFn(layer);
+      eqInd.className = 'indicator ' + (ok ? 'valid' : 'invalid');
+    });
+
+    // color
+    const colRow = document.createElement('div'); colRow.className = 'pRow';
+    const colLabel = document.createElement('span'); colLabel.className = 'pLabel'; colLabel.style.margin = '0'; colLabel.textContent = t('layerColor');
+    const colPick = document.createElement('input'); colPick.type = 'color'; colPick.className = 'pColor'; colPick.value = layer.color;
+    colPick.addEventListener('input', () => { layer.color = colPick.value; buildLayerCards(); });
+
+    // palette
+    const palLabel = document.createElement('label'); palLabel.className = 'pLabel'; palLabel.textContent = t('layerPalette');
+    const palSel = document.createElement('select'); palSel.className = 'pSelect';
+    Object.keys(PALETTES).forEach(pk => {
+      const op = document.createElement('option'); op.value = pk; op.textContent = pk;
+      if (pk === layer.palette) op.selected = true;
+      palSel.appendChild(op);
+    });
+    palSel.addEventListener('change', () => { layer.palette = palSel.value; });
+
+    // opacity
+    const opLabel = document.createElement('label'); opLabel.className = 'pLabel'; opLabel.textContent = t('layerOpacity');
+    const opRow = document.createElement('div'); opRow.className = 'pRow';
+    const opSlider = document.createElement('input'); opSlider.type = 'range'; opSlider.className = 'pSlider';
+    opSlider.min = 0; opSlider.max = 1; opSlider.step = 0.05; opSlider.value = layer.opacity;
+    const opVal = document.createElement('span'); opVal.className = 'pVal'; opVal.textContent = layer.opacity.toFixed(2);
+    opSlider.addEventListener('input', () => { layer.opacity = parseFloat(opSlider.value); opVal.textContent = layer.opacity.toFixed(2); });
+
+    // weight
+    const wtLabel = document.createElement('label'); wtLabel.className = 'pLabel'; wtLabel.textContent = t('layerWeight');
+    const wtRow = document.createElement('div'); wtRow.className = 'pRow';
+    const wtSlider = document.createElement('input'); wtSlider.type = 'range'; wtSlider.className = 'pSlider';
+    wtSlider.min = 0.1; wtSlider.max = 3; wtSlider.step = 0.1; wtSlider.value = layer.weight;
+    const wtVal = document.createElement('span'); wtVal.className = 'pVal'; wtVal.textContent = layer.weight.toFixed(1);
+    wtSlider.addEventListener('input', () => { layer.weight = parseFloat(wtSlider.value); wtVal.textContent = layer.weight.toFixed(1); });
+
+    // remove button
+    const rmBtn = document.createElement('button'); rmBtn.className = 'pBtn danger'; rmBtn.textContent = t('removeLayer');
+    rmBtn.addEventListener('click', () => {
+      ENG.layers.splice(idx, 1);
+      if (ENG.focusedLayer >= ENG.layers.length) ENG.focusedLayer = -1;
+      buildLayerCards();
+      reassignParticlesLayers();
+    });
+
+    opRow.appendChild(opSlider); opRow.appendChild(opVal);
+    wtRow.appendChild(wtSlider); wtRow.appendChild(wtVal);
+    colRow.appendChild(colLabel); colRow.appendChild(colPick);
+
+    card.appendChild(header);
+    card.appendChild(enRow);
+    card.appendChild(eqLabel);
+    const eqWrap = document.createElement('div'); eqWrap.className = 'pRow';
+    eqWrap.appendChild(eqTa); eqWrap.appendChild(eqInd);
+    card.appendChild(eqWrap);
+    card.appendChild(colRow);
+    card.appendChild(palLabel); card.appendChild(palSel);
+    card.appendChild(opLabel); card.appendChild(opRow);
+    card.appendChild(wtLabel); card.appendChild(wtRow);
+    card.appendChild(rmBtn);
+
+    container.appendChild(card);
+  });
+}
+
+function reassignParticlesLayers() {
+  const nl = ENG.layers.length || 1;
+  ENG.particles.forEach((p, i) => { p.layerIndex = i % nl; });
+}
+
+function bindPanelControls() {
+  // Formula apply button
+  const btnApply = document.getElementById('btnApplyFormula');
+  if (btnApply) btnApply.addEventListener('click', () => {
+    const code = document.getElementById('formulaInput')?.value || '';
+    applyFormulaToLayer(code);
+  });
+
+  // Formula input realtime
+  const fInput = document.getElementById('formulaInput');
+  if (fInput) fInput.addEventListener('input', () => {
+    const code = fInput.value;
+    const ok = validateFormula(code);
+    const ind = document.getElementById('formulaIndicator');
+    const sta = document.getElementById('formulaStatus');
+    if (ind) ind.className = 'indicator ' + (ok ? 'valid' : 'invalid');
+    if (sta) sta.textContent = ok ? t('valid') : t('invalid');
+  });
+
+  // Sliders helper
+  function bindSlider(id, valId, cfg, key, decimals) {
+    const slider = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    if (!slider) return;
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      ENG.config[key] = v;
+      if (valEl) valEl.textContent = v.toFixed(decimals || 2);
+      if (key === 'particleCount') { spawnParticles(); }
+    });
+  }
+
+  bindSlider('sliderCount', 'valCount', ENG.config, 'particleCount', 0);
+  bindSlider('sliderSpeed', 'valSpeed', ENG.config, 'speed', 1);
+  bindSlider('sliderFriction', 'valFriction', ENG.config, 'friction', 3);
+  bindSlider('sliderTurbulence', 'valTurbulence', ENG.config, 'turbulence', 2);
+  bindSlider('sliderMouseForce', 'valMouseForce', ENG.config, 'mouseForce', 0);
+  bindSlider('sliderTrailFade', 'valTrailFade', ENG.config, 'trailFade', 2);
+  bindSlider('sliderConnDist', 'valConnDist', ENG.config, 'connDist', 0);
+  bindSlider('sliderPulseSpeed', 'valPulseSpeed', ENG.config, 'pulseSpeed', 1);
+  bindSlider('sliderAudioGain', 'valAudioGain', ENG.audioData, 'gain', 1);
+
+  // Checkboxes
+  function bindCheck(id, cfg, key) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => { cfg[key] = el.checked; });
+  }
+
+  bindCheck('chkMotionBlur', ENG.config, 'motionBlur');
+  bindCheck('chkGlow', ENG.config, 'glow');
+  bindCheck('chkConnections', ENG.config, 'connections');
+  bindCheck('chkDepth3D', ENG.config, 'depth3D');
+  bindCheck('chkFFPulse', ENG.config, 'ffPulse');
+
+  // Selects
+  const selSym = document.getElementById('selSymmetry');
+  if (selSym) selSym.addEventListener('change', () => { ENG.config.symmetry = parseInt(selSym.value); });
+
+  const selTrail = document.getElementById('selTrailShape');
+  if (selTrail) selTrail.addEventListener('change', () => { ENG.config.trailShape = selTrail.value; });
+
+  const selMouse = document.getElementById('selMouseMode');
+  if (selMouse) selMouse.addEventListener('change', () => { ENG.mouse.mode = selMouse.value; });
+
+  // Layer add button
+  const btnAddLayer = document.getElementById('btnAddLayer');
+  if (btnAddLayer) btnAddLayer.addEventListener('click', () => {
+    const l = createLayer('sin(x*0.02+t)*cos(y*0.02+t)*2', '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0'), 'neon', 1, 1);
+    compileLayerFn(l);
+    ENG.layers.push(l);
+    buildLayerCards();
+    reassignParticlesLayers();
+  });
+
+  // Force field add
+  const btnAddFF = document.getElementById('btnAddFF');
+  if (btnAddFF) btnAddFF.addEventListener('click', () => {
+    const type = document.getElementById('ffTypeSelect')?.value || 'attract';
+    addForceField(type);
+  });
+
+  // Audio buttons
+  const btnMic = document.getElementById('btnMic');
+  if (btnMic) btnMic.addEventListener('click', startMic);
+
+  const btnAudioStop = document.getElementById('btnAudioStop');
+  if (btnAudioStop) btnAudioStop.addEventListener('click', stopAudio);
+
+  const audioFileInput = document.getElementById('audioFileInput');
+  if (audioFileInput) audioFileInput.addEventListener('change', e => {
+    if (e.target.files[0]) startAudioFile(e.target.files[0]);
+  });
+
+  // Game mode buttons
+  document.querySelectorAll('[data-game]').forEach(btn => {
+    btn.addEventListener('click', () => startGameMode(btn.dataset.game));
+  });
+
+  const exitGameBtn = document.getElementById('btnExitGame');
+  if (exitGameBtn) exitGameBtn.addEventListener('click', exitGameMode);
+
+  // Export buttons
+  const btn4K = document.getElementById('btnExport4K');
+  if (btn4K) btn4K.addEventListener('click', export4K);
+
+  const btnSVG = document.getElementById('btnExportSVG');
+  if (btnSVG) btnSVG.addEventListener('click', exportSVG);
+
+  const btnGLSL = document.getElementById('btnExportGLSL');
+  if (btnGLSL) btnGLSL.addEventListener('click', exportGLSL);
+
+  const btnSave = document.getElementById('btnSaveConfig');
+  if (btnSave) btnSave.addEventListener('click', saveConfig);
+
+  const loadInput = document.getElementById('loadConfigInput');
+  if (loadInput) loadInput.addEventListener('change', e => {
+    if (e.target.files[0]) loadConfig(e.target.files[0]);
+  });
+
+  // SVG modal actions
+  const btnSvgCopy = document.getElementById('btnSvgCopy');
+  if (btnSvgCopy) btnSvgCopy.addEventListener('click', () => {
+    if (window._svgCache) { navigator.clipboard.writeText(window._svgCache).then(() => showToast(t('toastCopied'))); }
+  });
+  const btnSvgDown = document.getElementById('btnSvgDownload');
+  if (btnSvgDown) btnSvgDown.addEventListener('click', () => {
+    if (!window._svgCache) return;
+    const blob = new Blob([window._svgCache], { type: 'image/svg+xml' });
+    const link = document.createElement('a');
+    link.download = 'xoretex_' + Date.now() + '.svg';
+    link.href = URL.createObjectURL(blob);
+    link.click();
+  });
+
+  // GLSL modal actions
+  const btnGlslCopy = document.getElementById('btnGlslCopy');
+  if (btnGlslCopy) btnGlslCopy.addEventListener('click', () => {
+    if (window._glslCache) { navigator.clipboard.writeText(window._glslCache).then(() => showToast(t('toastCopied'))); }
+  });
+
+  // Modal closes
+  document.getElementById('helpClose')?.addEventListener('click', () => hideModal('helpModal'));
+  document.getElementById('svgClose')?.addEventListener('click', () => hideModal('svgModal'));
+  document.getElementById('glslClose')?.addEventListener('click', () => hideModal('glslModal'));
+
+  // Help dont show
+  const helpDontChk = document.getElementById('helpDontShowChk');
+  if (helpDontChk) helpDontChk.addEventListener('change', () => {
+    if (helpDontChk.checked) localStorage.setItem('xoretex_help_seen', '1');
+    else localStorage.removeItem('xoretex_help_seen');
+  });
+
+  // Recording
+  const btnRecStop = document.getElementById('btnRecStop');
+  if (btnRecStop) btnRecStop.addEventListener('click', stopRecording);
+}
+
+function bindSectionToggles() {
+  document.querySelectorAll('.pSecHead').forEach(head => {
+    head.addEventListener('click', () => {
+      const bodyId = head.dataset.sec;
+      const body = document.getElementById(bodyId);
+      if (!body) return;
+      const isOpen = body.classList.contains('open');
+      body.classList.toggle('open', !isOpen);
+      head.classList.toggle('open', !isOpen);
+    });
+  });
+}
+
+function syncControlsFromConfig() {
+  const cfg = ENG.config;
+  function setSlider(id, valId, val, decimals) {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+    const ve = document.getElementById(valId);
+    if (ve) ve.textContent = parseFloat(val).toFixed(decimals || 2);
+  }
+  setSlider('sliderCount', 'valCount', cfg.particleCount, 0);
+  setSlider('sliderSpeed', 'valSpeed', cfg.speed, 1);
+  setSlider('sliderFriction', 'valFriction', cfg.friction, 3);
+  setSlider('sliderTurbulence', 'valTurbulence', cfg.turbulence, 2);
+  setSlider('sliderTrailFade', 'valTrailFade', cfg.trailFade, 2);
+  setSlider('sliderMouseForce', 'valMouseForce', cfg.mouseForce, 0);
+  setSlider('sliderConnDist', 'valConnDist', cfg.connDist, 0);
+
+  const chkGlow = document.getElementById('chkGlow');
+  if (chkGlow) chkGlow.checked = cfg.glow;
+  const chkConn = document.getElementById('chkConnections');
+  if (chkConn) chkConn.checked = cfg.connections;
+  const chkBlur = document.getElementById('chkMotionBlur');
+  if (chkBlur) chkBlur.checked = cfg.motionBlur;
+  const chkDepth = document.getElementById('chkDepth3D');
+  if (chkDepth) chkDepth.checked = cfg.depth3D;
+  const selSym = document.getElementById('selSymmetry');
+  if (selSym) selSym.value = cfg.symmetry;
+  const selTrail = document.getElementById('selTrailShape');
+  if (selTrail) selTrail.value = cfg.trailShape;
+}
+
+// ============================================================
+// TOP BAR BINDINGS
+// ============================================================
+function bindTopBar() {
+  const btnLang = document.getElementById('btnLang');
+  if (btnLang) btnLang.addEventListener('click', toggleLang);
+
+  const btnHelp = document.getElementById('btnHelp');
+  if (btnHelp) btnHelp.addEventListener('click', () => showModal('helpModal'));
+
+  const btnPause = document.getElementById('btnPause');
+  if (btnPause) btnPause.addEventListener('click', togglePause);
+
+  const btnFS = document.getElementById('btnFullscreen');
+  if (btnFS) btnFS.addEventListener('click', toggleFullscreen);
+
+  const btnSS = document.getElementById('btnScreenshot');
+  if (btnSS) btnSS.addEventListener('click', exportScreenshot);
+
+  const btnRec = document.getElementById('btnRecord');
+  if (btnRec) btnRec.addEventListener('click', () => {
+    if (ENG.mediaRecorder) stopRecording(); else startRecording();
+  });
+
+  // mode tabs
+  document.querySelectorAll('.modeTab').forEach(btn => {
+    btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
+  });
+
+  // panel toggle
+  const panelToggle = document.getElementById('panelToggle');
+  const sidePanel = document.getElementById('sidePanel');
+  if (panelToggle && sidePanel) {
+    panelToggle.addEventListener('click', () => {
+      const collapsed = sidePanel.classList.toggle('collapsed');
+      panelToggle.classList.toggle('collapsed', collapsed);
+      panelToggle.textContent = collapsed ? '▸' : '◂';
+    });
+  }
+}
+
+function togglePause() {
+  ENG.running = !ENG.running;
+  const btn = document.getElementById('btnPause');
+  if (btn) btn.textContent = ENG.running ? '⏸' : '▶';
+  showToast(ENG.running ? t('resumed') : t('paused'));
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+function bindKeyboard() {
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    switch (e.code) {
+      case 'Space': e.preventDefault(); togglePause(); break;
+      case 'KeyF': toggleFullscreen(); break;
+      case 'KeyS': exportScreenshot(); break;
+      case 'KeyR': if (ENG.mediaRecorder) stopRecording(); else startRecording(); break;
+      case 'KeyH': showModal('helpModal'); break;
+      case 'KeyP': {
+        const sidePanel = document.getElementById('sidePanel');
+        const panelToggle = document.getElementById('panelToggle');
+        if (sidePanel) {
+          const c = sidePanel.classList.toggle('collapsed');
+          if (panelToggle) { panelToggle.classList.toggle('collapsed', c); panelToggle.textContent = c ? '▸' : '◂'; }
+        }
+        break;
+      }
+      case 'KeyL': toggleLang(); break;
+      case 'Digit1': setViewMode('both'); break;
+      case 'Digit2': setViewMode('2d'); break;
+      case 'Digit3': setViewMode('3d'); break;
+      case 'KeyN': if (window.nextCubePattern) window.nextCubePattern(); break;
+    }
+  });
+}
+
+// ============================================================
+// MOUSE & TOUCH
+// ============================================================
+function bindMouse() {
+  const canvas = flowCan;
+  if (!canvas) return;
+
+  canvas.addEventListener('mousemove', e => {
+    ENG.mouse.x = e.clientX;
+    ENG.mouse.y = e.clientY;
+  });
+  canvas.addEventListener('mousedown', e => {
+    ENG.mouse.down = true;
+    if (ENG.gameMode === 'sculptor') placeSculptorObstacle(e.clientX, e.clientY);
+  });
+  canvas.addEventListener('mouseup', () => { ENG.mouse.down = false; });
+  canvas.addEventListener('mouseleave', () => { ENG.mouse.x = -9999; ENG.mouse.y = -9999; ENG.mouse.down = false; });
+}
+
+function bindTouch() {
+  const canvas = flowCan;
+  if (!canvas) return;
+  const ring = document.getElementById('touchRing');
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t2 = e.touches[0];
+    ENG.mouse.x = t2.clientX; ENG.mouse.y = t2.clientY; ENG.mouse.down = true;
+    if (ring) { ring.style.display = 'block'; ring.style.left = t2.clientX + 'px'; ring.style.top = t2.clientY + 'px'; }
+    if (ENG.gameMode === 'sculptor') placeSculptorObstacle(t2.clientX, t2.clientY);
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const t2 = e.touches[0];
+    ENG.mouse.x = t2.clientX; ENG.mouse.y = t2.clientY;
+    if (ring) { ring.style.left = t2.clientX + 'px'; ring.style.top = t2.clientY + 'px'; }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', () => {
+    ENG.mouse.down = false; ENG.mouse.x = -9999; ENG.mouse.y = -9999;
+    if (ring) ring.style.display = 'none';
+  });
+}
+
+// ============================================================
+// MODAL HELPERS
+// ============================================================
+function showModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('show');
+}
+function hideModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('show');
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimer = null;
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ============================================================
+// FORMULA VALIDATION
+// ============================================================
+function validateFormula(code) {
+  try {
+    new Function('x','y','t','r','cx','cy','PI','sin','cos','tan','atan2','sqrt','abs','noise','audio','return (' + code + ');');
+    return true;
+  } catch (e) { return false; }
+}
+
+function applyFormulaToLayer(code) {
+  if (!ENG.layers.length) {
+    const l = createLayer(code, '#00ffc8', 'cool', 1, 1);
+    compileLayerFn(l);
+    ENG.layers.push(l);
+    buildLayerCards();
+    reassignParticlesLayers();
+    return;
+  }
+  const fl = ENG.focusedLayer >= 0 && ENG.focusedLayer < ENG.layers.length
+    ? ENG.layers[ENG.focusedLayer] : ENG.layers[0];
+  fl.eq = code;
+  const ok = compileLayerFn(fl);
+  const ind = document.getElementById('formulaIndicator');
+  const sta = document.getElementById('formulaStatus');
+  if (ind) ind.className = 'indicator ' + (ok ? 'valid' : 'invalid');
+  if (sta) sta.textContent = ok ? t('valid') : t('invalid');
+  buildLayerCards();
+}
+
+// ============================================================
+// HELP MODAL CONTENT
+// ============================================================
+function buildHelpModal() {
+  const body = document.getElementById('helpBody');
+  if (!body) return;
+  const steps = [
+    { title: t('helpStep1Title'), text: t('helpStep1') },
+    { title: t('helpStep2Title'), text: t('helpStep2') },
+    { title: t('helpStep3Title'), text: t('helpStep3') },
+    { title: t('helpStep4Title'), text: t('helpStep4') },
+    { title: t('helpStep5Title'), text: t('helpStep5') },
+    { title: t('helpStep6Title'), text: t('helpStep6') },
+    { title: t('helpStep7Title'), text: t('helpStep7') },
+  ];
+  body.innerHTML = steps.map(s =>
+    `<div class="step"><h3>${s.title}</h3><p>${s.text}</p></div>`
+  ).join('');
+  const titleEl = document.querySelector('#helpModal .modalTitle');
+  if (titleEl) titleEl.textContent = t('helpTitle');
+}
+
+// ============================================================
+// BOOT
+// ============================================================
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initEngine2D);
+} else {
+  initEngine2D();
+}
