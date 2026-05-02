@@ -1,14 +1,26 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  GeoZakhraf Xhaos Engine v2.0 — ui.js (COMPLETE PATCHED)
+ *  GeoZakhraf Xhaos Engine v2.0 — ui.js
  *
- *  FIXES APPLIED:
- *  1. Pattern change — selectPreset() full verified chain
- *  2. POV exit — dedicated transparent overlay div
- *     captures click AND touchend independently
- *  3. buildPresetList() — for loop with closure-safe index
- *  4. Console logging for debug verification
- *  5. All sections complete — no omissions
+ *  Complete UI Controller
+ *  ──────────────────────
+ *  · Bilingual AR/EN with full RTL support
+ *  · 60 preset names in English + Arabic + descriptions
+ *  · Preset list with search, tabs, scroll-to-active
+ *  · All parameter sliders wired to engines
+ *  · POV mode with dedicated exit overlay (touch + click)
+ *  · Mobile hamburger menu + backdrop
+ *  · Texture mode toggle button
+ *  · Sync HUD with live bars + direction arrows + FPS
+ *  · Beat indicator with hold frames
+ *  · Toast notification queue (info / error / beat)
+ *  · Keyboard shortcuts system
+ *  · Screenshot capture + download
+ *  · Fullscreen toggle
+ *  · Shatter VFX overlay
+ *  · selectPresetRelative() for arrow key cycling
+ *
+ *  Architecture: IIFE Module Pattern
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -20,35 +32,38 @@ window.UI = (function () {
      SECTION 1 — STATE
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  let lang            = 'en';
-  let activePreset2D  = 0;
-  let activePreset3D  = 0;
-  let activeTab       = '2d';
-  let panelOpen       = true;
-  let povActive       = false;
-  let audioActive     = false;
-  let currentFilter   = '';
+  let lang           = 'en';
+  let activePreset2D = 0;
+  let activePreset3D = 0;
+  let activeTab      = '2d';
+  let panelOpen      = true;
+  let povActive      = false;
+  let audioActive    = false;
+  let currentFilter  = '';
 
   /* FPS tracking */
-  let fpsFrames       = 0;
-  let fpsLastTime     = performance.now();
-  let smoothFPS       = 60;
+  let fpsFrames      = 0;
+  let fpsLastTime    = performance.now();
+  let smoothFPS      = 60;
 
   /* Toast queue */
-  let toastQueue      = [];
-  let toastActive     = false;
+  let toastQueue     = [];
+  let toastActive    = false;
 
   /* Beat flash hold */
-  let beatFlashTimer  = 0;
+  let beatFlashTimer = 0;
 
-  /* POV exit overlay reference */
-  let povExitOverlay  = null;
+  /* POV exit overlay element */
+  let povExitOverlay = null;
+
+  /* Mobile panel elements */
+  let mobileMenuBtn  = null;
+  let panelBackdrop  = null;
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 2 — PRESET DATA
-     60 English names + 60 Arabic translations
-     + 60 English tooltip descriptions
+     60 EN names · 60 AR translations · 60 descriptions
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   const PRESET_NAMES_EN = [
@@ -75,26 +90,26 @@ window.UI = (function () {
   ];
 
   const PRESET_NAMES_AR = [
-    'ألياف ضوئية',        'حرير رقمي',           'اضطراب موجي',
-    'دوامة ديناميكية',    'شبكة عصبية',           'كتل البيانات',
-    'أمواج الرمل',        'نهر المجرة',           'انجراف شعاعي',
-    'تكرار هندسي',        'حقل مغناطيسي',         'فوضى منظمة',
-    'حلزون كسوري',        'عاصفة كهربائية',       'حلزون الحمض النووي',
-    'نمو المرجان',        'حقل كمي',              'خريطة طبوغرافية',
-    'تدفق المرآة',        'محاكاة الدخان',        'شبكة بلورية',
-    'سديم',               'نسيج منسوج',            'ثقب أسود',
-    'الشفق القطبي',       'تدفق فورونوي',         'حلقات التداخل',
-    'إعصار',              'شبكة عصبونية',         'ذراع المجرة',
-    'رخام سائل',          'شعلة شمسية',           'أوردة مجمدة',
-    'طية المخمل',         'تيار شريطي',           'تموجات صوتية',
-    'شبكة بلازما',        'وريد رخامي',           'نفق خارق',
-    'انجراف طحلبي',       'تيار شبكي',            'غرفة السحاب',
-    'انتشار الحبر',       'شبكة مضيئة',           'بلاط توافقي',
-    'حديقة حلزونية',      'تدفق الزئبق',          'موجة المنشور',
-    'شبكة مدارية',        'انجراف الجمر',         'انكسار زجاجي',
-    'تيار المحيط',        'زهرة حريرية',          'حلقات التدفق',
-    'تدفق صناعي',         'مشتل النجوم',          'شبكة موجية',
-    'نبض التداخل',        'تيار مداري',           'حقل خفي'
+    'ألياف ضوئية',       'حرير رقمي',           'اضطراب موجي',
+    'دوامة ديناميكية',   'شبكة عصبية',           'كتل البيانات',
+    'أمواج الرمل',       'نهر المجرة',           'انجراف شعاعي',
+    'تكرار هندسي',       'حقل مغناطيسي',         'فوضى منظمة',
+    'حلزون كسوري',       'عاصفة كهربائية',       'حلزون الحمض النووي',
+    'نمو المرجان',       'حقل كمي',              'خريطة طبوغرافية',
+    'تدفق المرآة',       'محاكاة الدخان',        'شبكة بلورية',
+    'سديم',              'نسيج منسوج',            'ثقب أسود',
+    'الشفق القطبي',      'تدفق فورونوي',         'حلقات التداخل',
+    'إعصار',             'شبكة عصبونية',         'ذراع المجرة',
+    'رخام سائل',         'شعلة شمسية',           'أوردة مجمدة',
+    'طية المخمل',        'تيار شريطي',           'تموجات صوتية',
+    'شبكة بلازما',       'وريد رخامي',           'نفق خارق',
+    'انجراف طحلبي',      'تيار شبكي',            'غرفة السحاب',
+    'انتشار الحبر',      'شبكة مضيئة',           'بلاط توافقي',
+    'حديقة حلزونية',     'تدفق الزئبق',          'موجة المنشور',
+    'شبكة مدارية',       'انجراف الجمر',         'انكسار زجاجي',
+    'تيار المحيط',       'زهرة حريرية',          'حلقات التدفق',
+    'تدفق صناعي',        'مشتل النجوم',          'شبكة موجية',
+    'نبض التداخل',       'تيار مداري',           'حقل خفي'
   ];
 
   const PRESET_DESC_EN = [
@@ -163,14 +178,13 @@ window.UI = (function () {
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 3 — DOM ELEMENT CACHE
-     All references stored once at init time
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   const el = {};
 
   function cacheElements() {
 
-    /* ── Header ── */
+    /* Header */
     el.btnLang        = document.getElementById('btn-lang');
     el.btnPov         = document.getElementById('btn-pov');
     el.btnTexMode     = document.getElementById('btn-tex-mode');
@@ -183,7 +197,7 @@ window.UI = (function () {
     el.formulaDisplay = document.getElementById('formula-index-display');
     el.brandTag       = document.getElementById('brand-tag');
 
-    /* ── Panel ── */
+    /* Panel */
     el.panelPresets   = document.getElementById('panel-presets');
     el.btnTogglePanel = document.getElementById('btn-toggle-panel');
     el.presetSearch   = document.getElementById('preset-search');
@@ -191,7 +205,7 @@ window.UI = (function () {
     el.panelCount     = document.getElementById('panel-count');
     el.tabBtns        = document.querySelectorAll('.tab-btn');
 
-    /* ── Sliders ── */
+    /* Sliders */
     el.sliders = {
       speed: {
         range: document.getElementById('param-speed'),
@@ -223,11 +237,11 @@ window.UI = (function () {
       }
     };
 
-    /* ── Action buttons ── */
+    /* Action buttons */
     el.btnShatter   = document.getElementById('btn-shatter');
     el.btnRandomize = document.getElementById('btn-randomize');
 
-    /* ── Sync HUD ── */
+    /* Sync HUD */
     el.sync2dFill    = document.getElementById('sync-2d-fill');
     el.sync3dFill    = document.getElementById('sync-3d-fill');
     el.syncOmegaFill = document.getElementById('sync-omega-fill');
@@ -239,90 +253,94 @@ window.UI = (function () {
     el.dir2d         = document.getElementById('dir-2d');
     el.dir3d         = document.getElementById('dir-3d');
 
-    /* ── Active label ── */
+    /* Active label */
     el.activeLabel      = document.getElementById('active-label');
     el.activePresetNum  = document.getElementById('active-preset-num');
     el.activePresetName = document.getElementById('active-preset-name');
     el.activeEngineTag  = document.getElementById('active-engine-tag');
 
-    /* ── Overlays ── */
+    /* Overlays */
     el.shortcutsOverlay  = document.getElementById('shortcuts-overlay');
     el.btnCloseShortcuts = document.getElementById('btn-close-shortcuts');
     el.screenshotFlash   = document.getElementById('screenshot-flash');
 
-    /* ── Canvases ── */
-    el.canvas3d = document.getElementById('canvas3d');
+    /* Mobile elements */
+    mobileMenuBtn = document.getElementById('btn-mobile-menu');
+    panelBackdrop = document.getElementById('panel-backdrop');
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 4 — POV EXIT OVERLAY (CREATED EARLY)
-     Must exist before bindHeaderButtons() is called.
-     A transparent div placed over everything at
-     z-index 150 that only shows during POV mode.
-     Captures both click and touchend to exit POV.
+     SECTION 4 — POV EXIT OVERLAY
+     Created once at init. Sits at z-index 150
+     above everything except overlays.
+     Captures click AND touchend to exit POV.
+     Shows only when POV mode is active.
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function createPOVExitOverlay() {
-    povExitOverlay             = document.createElement('div');
-    povExitOverlay.id          = 'pov-exit-overlay';
-    povExitOverlay.setAttribute('aria-label', 'Click or tap to exit POV mode');
-    povExitOverlay.style.cssText = [
-      'position: fixed',
-      'inset: 0',
-      'z-index: 150',
-      'cursor: pointer',
-      'display: none',
-      'background: transparent'
-    ].join(';');
+    povExitOverlay = document.createElement('div');
+    povExitOverlay.id = 'pov-exit-overlay';
+    povExitOverlay.setAttribute(
+      'aria-label',
+      'Click or tap anywhere to exit POV mode'
+    );
+    Object.assign(povExitOverlay.style, {
+      position:   'fixed',
+      inset:      '0',
+      zIndex:     '150',
+      cursor:     'pointer',
+      display:    'none',
+      background: 'transparent'
+    });
 
     document.body.appendChild(povExitOverlay);
 
-    /* Mouse click exit */
-    povExitOverlay.addEventListener('click', function () {
+    /* Mouse click */
+    povExitOverlay.addEventListener('click', () => {
       exitPOV();
     });
 
-    /* Touch tap exit — needs passive:false and preventDefault
-       to prevent the touch from also firing on canvas3d */
-    povExitOverlay.addEventListener('touchend', function (e) {
+    /* Touch tap — preventDefault stops ghost click
+       from also firing on canvas3d beneath */
+    povExitOverlay.addEventListener('touchend', e => {
       e.preventDefault();
       exitPOV();
     }, { passive: false });
   }
 
-  /* Shared POV exit function */
+  /** exitPOV — shared logic for all exit paths */
   function exitPOV() {
     if (!povActive) return;
     povActive = false;
 
-    /* Tell 3D engine to restore external camera */
     try { Cube3D.setPOV(false); } catch (e) {}
 
-    /* Remove app class — CSS transition restores UI */
     const app = document.getElementById('app');
     if (app) app.classList.remove('pov-mode');
 
-    /* Update button state */
     if (el.btnPov) {
       el.btnPov.classList.remove('active');
       el.btnPov.setAttribute('aria-pressed', 'false');
+      el.btnPov.textContent = lang === 'ar'
+        ? '⊙ منظور' : '⊙ POV';
     }
 
-    /* Hide the exit overlay */
     if (povExitOverlay) {
       povExitOverlay.style.display = 'none';
     }
 
-    const isAr = lang === 'ar';
-    showToast(isAr ? 'خرجت من وضع POV' : 'Exited POV Mode');
-    console.info('[UI] POV mode exited via overlay tap/click.');
+    showToast(lang === 'ar'
+      ? 'خرجت من وضع POV'
+      : 'Exited POV Mode');
+
+    console.info('[UI] POV exited.');
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 5 — PRESET LIST BUILDER (FIXED)
-     Uses for loop (not forEach) to guarantee
+     SECTION 5 — PRESET LIST BUILDER
+     Uses for loop (NOT forEach) to guarantee
      correct closure capture of index per item.
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
@@ -331,7 +349,7 @@ window.UI = (function () {
     currentFilter = filter;
 
     if (!el.presetList) {
-      console.warn('[UI] buildPresetList: #preset-list not found in DOM');
+      console.warn('[UI] #preset-list not found in DOM');
       return;
     }
 
@@ -342,56 +360,60 @@ window.UI = (function () {
     const frag    = document.createDocumentFragment();
     let   visible = 0;
 
-    /* ── FIXED: use for loop not forEach ──
-       forEach with an inner function does NOT
-       guarantee the correct `i` is captured
-       when the click fires asynchronously.
-       With `for (let i = ...)` the block scope
-       of `let` creates a fresh binding per iteration. */
     for (let i = 0; i < names.length; i++) {
-
       const name   = names[i];
       const enName = PRESET_NAMES_EN[i].toLowerCase();
       const arName = PRESET_NAMES_AR[i];
 
-      /* Apply search filter */
+      /* Filter: match English, Arabic, or number */
       if (filter) {
-        const matchEn  = enName.includes(filter);
-        const matchAr  = arName.includes(filter);
-        const matchNum = String(i + 1).includes(filter);
-        if (!matchEn && !matchAr && !matchNum) continue;
+        const mEn  = enName.includes(filter);
+        const mAr  = arName.includes(filter);
+        const mNum = String(i + 1).includes(filter);
+        if (!mEn && !mAr && !mNum) continue;
       }
 
       visible++;
 
-      /* Create item element */
       const item = document.createElement('div');
       item.className = 'preset-item';
       item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', i === activeIdx ? 'true' : 'false');
+      item.setAttribute(
+        'aria-selected',
+        i === activeIdx ? 'true' : 'false'
+      );
       item.setAttribute('data-preset-index', i);
       item.title = PRESET_DESC_EN[i] || '';
       if (i === activeIdx) item.classList.add('active');
 
-      /* Number badge + name */
-      const numSpan  = document.createElement('span');
+      /* Number badge */
+      const numSpan = document.createElement('span');
       numSpan.className   = 'preset-num';
       numSpan.textContent = String(i + 1).padStart(2, '0');
       numSpan.setAttribute('aria-hidden', 'true');
 
-      const nameSpan  = document.createElement('span');
+      /* Name */
+      const nameSpan = document.createElement('span');
       nameSpan.className   = 'preset-name';
       nameSpan.textContent = name;
 
       item.appendChild(numSpan);
       item.appendChild(nameSpan);
 
-      /* ── FIXED: `i` is safely captured by `let` block scope ── */
+      /*
+        CRITICAL FIX: use IIFE to capture `i` safely.
+        forEach does NOT guarantee correct closure.
+        This pattern guarantees capturedIndex is always
+        the correct value when the click fires.
+      */
       item.addEventListener('click', (function (capturedIndex) {
-        return function handlePresetClick(e) {
+        return function handleClick(e) {
           e.stopPropagation();
           selectPreset(capturedIndex);
-          if (window.innerWidth <= 768) closeMobilePanel();
+          /* Close panel on mobile after selection */
+          if (window.innerWidth <= 768) {
+            closeMobilePanel();
+          }
         };
       }(i)));
 
@@ -404,43 +426,48 @@ window.UI = (function () {
 
     /* Update count badge */
     if (el.panelCount) {
-      el.panelCount.textContent = filter
-        ? `${visible}/60`
-        : '60';
+      el.panelCount.textContent =
+        filter ? `${visible}/60` : '60';
     }
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 6 — SELECT PRESET (FIXED + VERIFIED)
+     SECTION 6 — SELECT PRESET (VERIFIED CHAIN)
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
    * selectPreset — activate formula on Engine2D.
-   * In v2.0 the cube automatically gets the formula
-   * via CanvasTexture — no extra Cube3D call needed
-   * unless in shader overlay mode.
+   * The cube gets it automatically via CanvasTexture.
    *
-   * @param {number} index  0-based formula index [0..59]
+   * Chain:
+   * 1. Clamp index
+   * 2. Engine2D.setPreset() → changes active formula
+   * 3. Engine2D.resetParticles() → clears old trails
+   * 4. Cube3D.setPreset() if in shader overlay mode
+   * 5. Update all UI elements
+   * 6. Rebuild list (highlight new active)
+   * 7. Scroll into view
+   * 8. Toast notification
+   *
+   * @param {number} index  [0..59]
    */
   function selectPreset(index) {
-    /* Clamp to valid range */
     const idx = Math.max(0, Math.min(59, index | 0));
 
     console.info(
-      `[UI] selectPreset(${idx}) — ` +
+      `[UI] selectPreset(${idx}) ` +
       `"${PRESET_NAMES_EN[idx]}" ` +
-      `[tab: ${activeTab}]`
+      `[tab:${activeTab}]`
     );
 
-    /* ── Update 2D engine — this drives the texture ── */
+    /* Step 1: Update 2D engine — drives the texture */
     activePreset2D = idx;
 
     if (window.Engine2D) {
       try {
         Engine2D.setPreset(idx);
         Engine2D.resetParticles();
-        console.info(`[UI] Engine2D preset set to ${idx}`);
       } catch (e) {
         console.error('[UI] Engine2D.setPreset failed:', e);
       }
@@ -448,28 +475,24 @@ window.UI = (function () {
       console.error('[UI] Engine2D not available!');
     }
 
-    /* ── If in 3D overlay tab also update shader ── */
+    /* Step 2: Update 3D shader if in overlay tab */
     if (activeTab === '3d' && window.Cube3D) {
       activePreset3D = idx;
-      try {
-        Cube3D.setPreset(idx);
-      } catch (e) {
-        console.error('[UI] Cube3D.setPreset failed:', e);
-      }
+      try { Cube3D.setPreset(idx); } catch (e) {}
     }
 
-    /* ── Update active label badge ── */
+    /* Step 3: Update UI elements */
     updateActiveLabel(idx);
 
-    /* ── Update formula chip in header ── */
     if (el.formulaDisplay) {
-      el.formulaDisplay.textContent = String(idx + 1).padStart(2, '0');
+      el.formulaDisplay.textContent =
+        String(idx + 1).padStart(2, '0');
     }
 
-    /* ── Rebuild preset list to update active highlight ── */
+    /* Step 4: Rebuild list */
     buildPresetList(currentFilter);
 
-    /* ── Scroll active item into view ── */
+    /* Step 5: Scroll active into view */
     requestAnimationFrame(() => {
       if (!el.presetList) return;
       const activeItem = el.presetList
@@ -482,7 +505,7 @@ window.UI = (function () {
       }
     });
 
-    /* ── Toast notification ── */
+    /* Step 6: Toast */
     const name = lang === 'ar'
       ? PRESET_NAMES_AR[idx]
       : PRESET_NAMES_EN[idx];
@@ -490,8 +513,11 @@ window.UI = (function () {
   }
 
   /**
-   * selectPresetRelative — cycle preset by delta.
-   * Called by keyboard ← → ↑ ↓ in main.js.
+   * selectPresetRelative — cycle by delta.
+   * Called by keyboard arrow keys in main.js.
+   * @param {string} engine '2d' | '3d'
+   * @param {number} delta  +1 or -1
+   * @returns {number} new active index
    */
   function selectPresetRelative(engine, delta) {
     const current = activePreset2D;
@@ -500,10 +526,7 @@ window.UI = (function () {
     return next;
   }
 
-  /**
-   * updateActiveLabel — update the floating badge
-   * at bottom-left showing current formula.
-   */
+  /** updateActiveLabel — update floating badge */
   function updateActiveLabel(index) {
     const name = lang === 'ar'
       ? PRESET_NAMES_AR[index]
@@ -514,7 +537,8 @@ window.UI = (function () {
       : '2D → 3D LIVE';
 
     if (el.activePresetNum) {
-      el.activePresetNum.textContent = String(index + 1).padStart(2, '0');
+      el.activePresetNum.textContent =
+        String(index + 1).padStart(2, '0');
     }
     if (el.activePresetName) {
       el.activePresetName.textContent = name;
@@ -523,11 +547,10 @@ window.UI = (function () {
       el.activeEngineTag.textContent = engineLabel;
     }
 
-    /* Trigger flash animation */
+    /* Trigger CSS flash animation */
     if (el.activeLabel) {
       el.activeLabel.classList.remove('flash');
-      /* Force reflow to restart animation */
-      void el.activeLabel.offsetWidth;
+      void el.activeLabel.offsetWidth; /* force reflow */
       el.activeLabel.classList.add('flash');
     }
   }
@@ -538,52 +561,51 @@ window.UI = (function () {
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function bindSliders() {
-
     const configs = [
       {
-        key: 'speed',
-        dec: 2,
-        fn:  v => {
-          Engine2D.setParams({ speed: v });
-          Cube3D.setParams({   speed: v });
+        key: 'speed', dec: 2,
+        fn: v => {
+          if (window.Engine2D) Engine2D.setParams({ speed: v });
+          if (window.Cube3D)   Cube3D.setParams({   speed: v });
         }
       },
       {
-        key: 'scale',
-        dec: 2,
-        fn:  v => {
-          Engine2D.setParams({ scale: v });
-          Cube3D.setParams({   scale: v });
+        key: 'scale', dec: 2,
+        fn: v => {
+          if (window.Engine2D) Engine2D.setParams({ scale: v });
+          if (window.Cube3D)   Cube3D.setParams({   scale: v });
         }
       },
       {
-        key: 'chaos',
-        dec: 2,
-        fn:  v => {
-          Engine2D.setParams({ chaos: v });
-          Cube3D.setParams({   chaos: v });
+        key: 'chaos', dec: 2,
+        fn: v => {
+          if (window.Engine2D) Engine2D.setParams({ chaos: v });
+          if (window.Cube3D)   Cube3D.setParams({   chaos: v });
         }
       },
       {
-        key: 'bloom',
-        dec: 2,
-        fn:  v => { Cube3D.setBloom(v); }
+        key: 'bloom', dec: 2,
+        fn: v => {
+          if (window.Cube3D) Cube3D.setBloom(v);
+        }
       },
       {
-        key: 'rotation',
-        dec: 2,
-        fn:  v => { Cube3D.setParams({ rotation: v }); }
+        key: 'rotation', dec: 2,
+        fn: v => {
+          if (window.Cube3D) Cube3D.setParams({ rotation: v });
+        }
       },
       {
-        key: 'density',
-        dec: 0,
-        fn:  v => { Engine2D.setParams({ density: v }); }
+        key: 'density', dec: 0,
+        fn: v => {
+          if (window.Engine2D) Engine2D.setParams({ density: v });
+        }
       },
       {
-        /* v2.0 — texture opacity/depth */
-        key: 'texOpacity',
-        dec: 2,
-        fn:  v => { Cube3D.setParams({ texOpacity: v }); }
+        key: 'texOpacity', dec: 2,
+        fn: v => {
+          if (window.Cube3D) Cube3D.setParams({ texOpacity: v });
+        }
       }
     ];
 
@@ -594,21 +616,20 @@ window.UI = (function () {
       s.range.addEventListener('input', () => {
         const v = parseFloat(s.range.value);
 
-        /* Update display value */
         if (s.val) {
           s.val.textContent = cfg.dec > 0
             ? v.toFixed(cfg.dec)
             : Math.round(v).toString();
         }
 
-        /* Update ARIA */
         s.range.setAttribute('aria-valuenow', v);
 
-        /* Notify engines */
-        try { cfg.fn(v); } catch (e) {}
+        try { cfg.fn(v); } catch (e) {
+          console.warn('[UI] Slider fn error:', e);
+        }
       });
 
-      /* Prevent panel scrolling while adjusting slider on mobile */
+      /* Prevent panel scroll while using slider on mobile */
       s.range.addEventListener('touchstart', e => {
         e.stopPropagation();
       }, { passive: true });
@@ -622,7 +643,7 @@ window.UI = (function () {
 
   function bindHeaderButtons() {
 
-    /* ── Language Toggle ── */
+    /* ── Language ── */
     if (el.btnLang) {
       el.btnLang.addEventListener('click', () => {
         lang = lang === 'en' ? 'ar' : 'en';
@@ -635,11 +656,11 @@ window.UI = (function () {
       });
     }
 
-    /* ── POV Mode (FIXED) ── */
+    /* ── POV Mode ── */
     if (el.btnPov) {
       el.btnPov.addEventListener('click', () => {
         if (!povActive) {
-          /* ── ENTER POV ── */
+          /* Enter POV */
           povActive = true;
 
           try { Cube3D.setPOV(true); } catch (e) {}
@@ -649,15 +670,16 @@ window.UI = (function () {
 
           el.btnPov.classList.add('active');
           el.btnPov.setAttribute('aria-pressed', 'true');
+          el.btnPov.textContent = lang === 'ar'
+            ? '⊙ خروج' : '⊙ EXIT';
 
-          const isAr = lang === 'ar';
-          showToast(isAr
+          showToast(lang === 'ar'
             ? 'وضع POV — اضغط في أي مكان للخروج'
             : 'POV Mode — tap anywhere to exit');
 
-          /* Show exit overlay AFTER a 500ms delay.
-             This prevents the same click that entered POV
-             from immediately exiting it via the overlay. */
+          /* Show exit overlay after 500ms delay.
+             Prevents the enter-click from immediately
+             triggering the exit handler. */
           setTimeout(() => {
             if (povExitOverlay && povActive) {
               povExitOverlay.style.display = 'block';
@@ -665,7 +687,7 @@ window.UI = (function () {
           }, 500);
 
         } else {
-          /* ── EXIT POV via button ── */
+          /* Exit via button */
           exitPOV();
         }
       });
@@ -678,7 +700,7 @@ window.UI = (function () {
         try {
           isNowTex = Cube3D.toggleTextureMode();
         } catch (e) {
-          console.error('[UI] Cube3D.toggleTextureMode failed:', e);
+          console.error('[UI] toggleTextureMode:', e);
         }
 
         el.btnTexMode.classList.toggle('active', isNowTex);
@@ -686,8 +708,8 @@ window.UI = (function () {
 
         const isAr = lang === 'ar';
         el.btnTexMode.textContent = isNowTex
-          ? (isAr ? '⬡ نسيج حي' : '⬡ LIVE TEX')
-          : (isAr ? '⬡ شيدر'    : '⬡ SHADER');
+          ? (isAr ? '⬡ نسيج حي' : '⬡ TEX')
+          : (isAr ? '⬡ شيدر'    : '⬡ GLSL');
 
         if (el.texDot) {
           el.texDot.classList.toggle('inactive', !isNowTex);
@@ -695,11 +717,11 @@ window.UI = (function () {
 
         showToast(isNowTex
           ? (isAr
-             ? 'النسيج الحي — المكعب يرتدي حقل الجسيمات'
-             : 'Live Texture — cube wears the particle field')
+             ? 'النسيج الحي — المكعب يرتدي الجسيمات'
+             : 'Live Texture Mode')
           : (isAr
              ? 'وضع الشيدر — صيغ GLSL مستقلة'
-             : 'Shader Mode — independent GLSL formulas'));
+             : 'Shader Overlay Mode'));
       });
     }
 
@@ -707,17 +729,19 @@ window.UI = (function () {
     if (el.btnAudio) {
       el.btnAudio.addEventListener('click', async () => {
 
-        if (!AudioEngine.isSupported()) {
+        if (!window.AudioEngine || !AudioEngine.isSupported()) {
           showToast(lang === 'ar'
-            ? 'المتصفح لا يدعم الصوت'
-            : 'Audio API not supported', 'error');
+            ? 'الصوت غير مدعوم'
+            : 'Audio not supported in this browser',
+            'error');
           return;
         }
 
         if (!audioActive) {
-          /* Show loading state */
-          el.btnAudio.textContent = lang === 'ar' ? '⏳ انتظر' : '⏳ WAIT';
-          el.btnAudio.disabled    = true;
+          /* Loading state */
+          el.btnAudio.textContent =
+            lang === 'ar' ? '⏳ انتظر' : '⏳ WAIT';
+          el.btnAudio.disabled = true;
 
           const ok = await AudioEngine.init();
           el.btnAudio.disabled = false;
@@ -726,25 +750,31 @@ window.UI = (function () {
             audioActive = true;
             el.btnAudio.classList.add('active');
             el.btnAudio.setAttribute('aria-pressed', 'true');
-            el.btnAudio.textContent = lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
+            el.btnAudio.textContent =
+              lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
             showToast(lang === 'ar'
-              ? 'المايكروفون نشط — ردود فعل صوتية'
+              ? 'المايكروفون نشط'
               : 'Microphone active — audio reactive');
           } else {
-            el.btnAudio.textContent = lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
+            el.btnAudio.textContent =
+              lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
             showToast(lang === 'ar'
               ? 'تعذّر الوصول للمايكروفون'
-              : 'Microphone access denied', 'error');
+              : 'Microphone access denied',
+              'error');
           }
 
         } else {
-          /* Stop audio */
+          /* Stop */
           try { AudioEngine.stop(); } catch (e) {}
           audioActive = false;
           el.btnAudio.classList.remove('active');
           el.btnAudio.setAttribute('aria-pressed', 'false');
-          el.btnAudio.textContent = lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
-          showToast(lang === 'ar' ? 'تم إيقاف الصوت' : 'Audio stopped');
+          el.btnAudio.textContent =
+            lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
+          showToast(lang === 'ar'
+            ? 'تم إيقاف الصوت'
+            : 'Audio stopped');
         }
       });
     }
@@ -757,11 +787,10 @@ window.UI = (function () {
     /* ── Fullscreen ── */
     if (el.btnFullscreen) {
       el.btnFullscreen.addEventListener('click', toggleFullscreen);
-
       document.addEventListener('fullscreenchange', () => {
-        const isFull = !!document.fullscreenElement;
+        const full = !!document.fullscreenElement;
         if (el.btnFullscreen) {
-          el.btnFullscreen.textContent = isFull
+          el.btnFullscreen.textContent = full
             ? (lang === 'ar' ? '⛶ خروج' : '⛶ EXIT')
             : (lang === 'ar' ? '⛶ كامل' : '⛶ FULL');
         }
@@ -771,7 +800,7 @@ window.UI = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 9 — BOTTOM BAR ACTION BUTTONS
+     SECTION 9 — ACTION BUTTONS
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function bindActionButtons() {
@@ -781,7 +810,10 @@ window.UI = (function () {
       el.btnShatter.addEventListener('click', () => {
         try { Cube3D.triggerShatter(); } catch (e) {}
         triggerShatterVFX();
-        showToast(lang === 'ar' ? '⚡ تحطيم!' : '⚡ SHATTERING!', 'beat');
+        showToast(
+          lang === 'ar' ? '⚡ تحطيم!' : '⚡ SHATTERING!',
+          'beat'
+        );
       });
     }
 
@@ -791,16 +823,10 @@ window.UI = (function () {
     }
   }
 
-  /**
-   * randomizeBoth — pick two different random formulas.
-   * 2D gets one, 3D shader overlay gets another.
-   * Cube texture shows the 2D result automatically.
-   */
+  /** randomizeBoth — pick two different random formulas */
   function randomizeBoth() {
     let i2d = Math.floor(Math.random() * 60);
     let i3d = Math.floor(Math.random() * 60);
-
-    /* Ensure the two are different */
     while (i3d === i2d) {
       i3d = Math.floor(Math.random() * 60);
     }
@@ -810,9 +836,7 @@ window.UI = (function () {
       Engine2D.resetParticles();
     } catch (e) {}
 
-    try {
-      Cube3D.setPreset(i3d);
-    } catch (e) {}
+    try { Cube3D.setPreset(i3d); } catch (e) {}
 
     activePreset2D = i2d;
     activePreset3D = i3d;
@@ -820,7 +844,8 @@ window.UI = (function () {
     updateActiveLabel(i2d);
 
     if (el.formulaDisplay) {
-      el.formulaDisplay.textContent = String(i2d + 1).padStart(2, '0');
+      el.formulaDisplay.textContent =
+        String(i2d + 1).padStart(2, '0');
     }
 
     buildPresetList(currentFilter);
@@ -832,30 +857,71 @@ window.UI = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 10 — PANEL & TAB CONTROLS
+     SECTION 10 — MOBILE MENU & PANEL CONTROLS
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  function bindMobileMenu() {
+    if (!mobileMenuBtn) return;
+
+    mobileMenuBtn.addEventListener('click', () => {
+      panelOpen = !panelOpen;
+      openMobilePanel(panelOpen);
+    });
+
+    /* Backdrop click closes panel */
+    if (panelBackdrop) {
+      panelBackdrop.addEventListener('click', () => {
+        closeMobilePanel();
+      });
+    }
+  }
+
+  function openMobilePanel(open) {
+    if (!el.panelPresets) return;
+    el.panelPresets.classList.toggle('open', open);
+    if (panelBackdrop) {
+      panelBackdrop.classList.toggle('visible', open);
+    }
+    if (mobileMenuBtn) {
+      mobileMenuBtn.classList.toggle('panel-open', open);
+      mobileMenuBtn.textContent = open ? '✕' : '☰';
+      mobileMenuBtn.setAttribute('aria-expanded', open);
+    }
+  }
+
+  function closeMobilePanel() {
+    panelOpen = false;
+    if (el.panelPresets) el.panelPresets.classList.remove('open');
+    if (panelBackdrop)   panelBackdrop.classList.remove('visible');
+    if (mobileMenuBtn) {
+      mobileMenuBtn.classList.remove('panel-open');
+      mobileMenuBtn.textContent = '☰';
+      mobileMenuBtn.setAttribute('aria-expanded', 'false');
+    }
+    updatePanelToggleIcon();
+  }
 
   function bindPanelControls() {
 
-    /* Panel toggle (collapse/expand) */
+    /* Desktop collapse toggle */
     if (el.btnTogglePanel) {
       el.btnTogglePanel.addEventListener('click', () => {
         panelOpen = !panelOpen;
-
         if (window.innerWidth <= 768) {
-          /* Mobile: slide drawer */
-          el.panelPresets.classList.toggle('open', panelOpen);
+          openMobilePanel(panelOpen);
         } else {
-          /* Desktop: collapse */
-          el.panelPresets.classList.toggle('collapsed', !panelOpen);
+          el.panelPresets.classList.toggle(
+            'collapsed', !panelOpen
+          );
         }
-
         updatePanelToggleIcon();
-        el.btnTogglePanel.setAttribute('aria-expanded', panelOpen);
+        el.btnTogglePanel.setAttribute(
+          'aria-expanded', panelOpen
+        );
       });
     }
 
-    /* Tabs — 2D source / 3D overlay */
+    /* Tabs */
     if (el.tabBtns) {
       el.tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -866,27 +932,24 @@ window.UI = (function () {
           btn.classList.add('active');
           btn.setAttribute('aria-selected', 'true');
           activeTab = btn.dataset.tab;
-
           buildPresetList(currentFilter);
           updateActiveLabel(activePreset2D);
-
           showToast(activeTab === '2d'
             ? (lang === 'ar'
                ? 'مصدر النسيج — يتحكم في الجسيمات والمكعب'
-               : 'Texture Source — controls particles & cube')
+               : 'Texture Source — drives particles & cube')
             : (lang === 'ar'
-               ? 'طبقة GLSL — فوق النسيج الحي'
-               : 'GLSL Overlay — layered over live texture'));
+               ? 'طبقة GLSL فوق النسيج الحي'
+               : 'GLSL Overlay over live texture'));
         });
       });
     }
 
-    /* Search field */
+    /* Search */
     if (el.presetSearch) {
       el.presetSearch.addEventListener('input', () => {
         buildPresetList(el.presetSearch.value);
       });
-
       el.presetSearch.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
           el.presetSearch.value = '';
@@ -905,12 +968,6 @@ window.UI = (function () {
       : (isRTL ? '‹' : '›');
   }
 
-  function closeMobilePanel() {
-    panelOpen = false;
-    if (el.panelPresets) el.panelPresets.classList.remove('open');
-    updatePanelToggleIcon();
-  }
-
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 11 — SHORTCUTS OVERLAY
@@ -922,7 +979,6 @@ window.UI = (function () {
         toggleShortcutsOverlay(false);
       });
     }
-
     if (el.shortcutsOverlay) {
       el.shortcutsOverlay.addEventListener('click', e => {
         if (e.target === el.shortcutsOverlay) {
@@ -959,14 +1015,15 @@ window.UI = (function () {
         }, 50);
       }
 
-      /* Capture 3D frame */
       const dataURL = Cube3D.captureFrame();
       const link    = document.createElement('a');
-      link.download = `geozakhraf-xhaos-v2-${Date.now()}.png`;
+      link.download = `geozakhraf-v2-${Date.now()}.png`;
       link.href     = dataURL;
       link.click();
 
-      showToast(lang === 'ar' ? 'تم حفظ اللقطة' : 'Screenshot saved');
+      showToast(lang === 'ar'
+        ? 'تم حفظ اللقطة'
+        : 'Screenshot saved');
 
     } catch (e) {
       console.error('[UI] Screenshot failed:', e);
@@ -979,8 +1036,8 @@ window.UI = (function () {
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
       document.documentElement
-              .requestFullscreen({ navigationUI: 'hide' })
-              .catch(() => {});
+        .requestFullscreen({ navigationUI: 'hide' })
+        .catch(() => {});
     } else {
       document.exitFullscreen().catch(() => {});
     }
@@ -992,13 +1049,13 @@ window.UI = (function () {
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function triggerShatterVFX() {
-    /* Red radial flash overlay */
+    /* Red radial flash */
     const overlay     = document.createElement('div');
     overlay.className = 'shatter-overlay';
     document.body.appendChild(overlay);
     setTimeout(() => overlay.remove(), 750);
 
-    /* Pulse the shatter button */
+    /* Pulse shatter button */
     if (el.btnShatter) {
       el.btnShatter.classList.add('beat-active');
       setTimeout(() => {
@@ -1015,8 +1072,8 @@ window.UI = (function () {
   /**
    * showToast — queue a brief notification.
    * @param {string} message
-   * @param {string} type      'info' | 'error' | 'beat'
-   * @param {number} duration  ms (default 2000)
+   * @param {string} type     'info' | 'error' | 'beat'
+   * @param {number} duration ms (default 2000)
    */
   function showToast(message, type, duration) {
     type     = type     || 'info';
@@ -1048,7 +1105,7 @@ window.UI = (function () {
       toast.classList.add('toast-visible');
     });
 
-    /* Remove after duration */
+    /* Animate out and process next */
     setTimeout(() => {
       toast.classList.remove('toast-visible');
       toast.classList.add('toast-hiding');
@@ -1068,21 +1125,22 @@ window.UI = (function () {
     const html = document.getElementById('html-root');
     const isAr = lang === 'ar';
 
-    /* Document direction */
     html.lang = lang;
     html.dir  = isAr ? 'rtl' : 'ltr';
 
     /* Language button */
     if (el.btnLang) {
       el.btnLang.textContent = isAr ? 'EN' : 'AR';
-      el.btnLang.title       = isAr
+      el.btnLang.title = isAr
         ? 'Switch to English'
         : 'التبديل إلى العربية';
     }
 
-    /* Brand tag */
+    /* Brand */
     if (el.brandTag) {
-      el.brandTag.textContent = isAr ? 'محرك الفوضى' : 'XHAOS ENGINE';
+      el.brandTag.textContent = isAr
+        ? 'محرك الفوضى'
+        : 'XHAOS ENGINE';
     }
 
     /* All data-en / data-ar elements */
@@ -1093,33 +1151,48 @@ window.UI = (function () {
       }
     });
 
-    /* Search placeholder */
+    /* Search */
     if (el.presetSearch) {
       el.presetSearch.placeholder = isAr
         ? 'البحث عن صيغة…'
         : 'Search formula…';
     }
 
-    /* Button labels */
-    if (el.btnShatter)    el.btnShatter.textContent    = isAr ? '⚡ تحطيم'   : '⚡ SHATTER';
-    if (el.btnRandomize)  el.btnRandomize.textContent  = isAr ? '⚄ عشوائي'  : '⚄ RANDOMIZE';
-    if (el.btnPov)        el.btnPov.textContent        = isAr ? '⊙ منظور'   : '⊙ POV';
-    if (el.btnAudio)      el.btnAudio.textContent      = isAr ? '♫ صوت'     : '♫ AUDIO';
-    if (el.btnScreenshot) el.btnScreenshot.textContent = isAr ? '⬡ التقاط'  : '⬡ CAPTURE';
+    /* Buttons */
+    if (el.btnShatter) {
+      el.btnShatter.textContent =
+        isAr ? '⚡ تحطيم' : '⚡ SHATTER';
+    }
+    if (el.btnRandomize) {
+      el.btnRandomize.textContent =
+        isAr ? '⚄ عشوائي' : '⚄ RANDOMIZE';
+    }
+    if (el.btnPov) {
+      el.btnPov.textContent = povActive
+        ? (isAr ? '⊙ خروج' : '⊙ EXIT')
+        : (isAr ? '⊙ منظور' : '⊙ POV');
+    }
+    if (el.btnAudio) {
+      el.btnAudio.textContent =
+        isAr ? '♫ صوت' : '♫ AUDIO';
+    }
+    if (el.btnScreenshot) {
+      el.btnScreenshot.textContent =
+        isAr ? '⬡ التقاط' : '⬡ CAP';
+    }
+    if (el.btnFullscreen) {
+      el.btnFullscreen.textContent =
+        !!document.fullscreenElement
+          ? (isAr ? '⛶ خروج' : '⛶ EXIT')
+          : (isAr ? '⛶ كامل' : '⛶ FULL');
+    }
 
     /* Texture mode button */
     if (el.btnTexMode) {
       const isTex = el.btnTexMode.classList.contains('active');
       el.btnTexMode.textContent = isTex
-        ? (isAr ? '⬡ نسيج حي' : '⬡ LIVE TEX')
-        : (isAr ? '⬡ شيدر'    : '⬡ SHADER');
-    }
-
-    /* Fullscreen button */
-    if (el.btnFullscreen) {
-      el.btnFullscreen.textContent = !!document.fullscreenElement
-        ? (isAr ? '⛶ خروج' : '⛶ EXIT')
-        : (isAr ? '⛶ كامل' : '⛶ FULL');
+        ? (isAr ? '⬡ نسيج حي' : '⬡ TEX')
+        : (isAr ? '⬡ شيدر'    : '⬡ GLSL');
     }
 
     /* Slider labels */
@@ -1130,7 +1203,7 @@ window.UI = (function () {
       bloom:      ['BLOOM',     'الإضاءة'   ],
       rotation:   ['ROTATION',  'الدوران'   ],
       density:    ['DENSITY',   'الكثافة'   ],
-      texOpacity: ['TEX DEPTH', 'عمق النسيج']
+      texOpacity: ['TEX',       'نسيج'      ]
     };
 
     Object.entries(sliderLabels).forEach(([key, [en, ar]]) => {
@@ -1146,12 +1219,12 @@ window.UI = (function () {
     if (el.tabBtns) {
       el.tabBtns.forEach(btn => {
         btn.textContent = btn.dataset.tab === '2d'
-          ? (isAr ? 'مصدر النسيج' : '2D · TEXTURE SRC')
-          : (isAr ? 'طبقة ثلاثية'  : '3D · OVERLAY');
+          ? (isAr ? 'مصدر النسيج' : '2D SOURCE')
+          : (isAr ? 'طبقة ثلاثية'  : '3D OVERLAY');
       });
     }
 
-    /* Sync HUD text */
+    /* Sync HUD */
     const syncTitle = document.querySelector('.sync-title');
     if (syncTitle) {
       syncTitle.textContent = isAr
@@ -1164,19 +1237,28 @@ window.UI = (function () {
       dirLabel.textContent = isAr ? 'الدوران' : 'ROTATION';
     }
 
-    /* Shortcuts overlay header */
-    const shortcutsHeader = document.querySelector('.shortcuts-header span');
-    if (shortcutsHeader) {
-      shortcutsHeader.textContent = isAr
+    /* Shortcuts header */
+    const shHeader =
+      document.querySelector('.shortcuts-header span');
+    if (shHeader) {
+      shHeader.textContent = isAr
         ? 'اختصارات لوحة المفاتيح'
         : 'KEYBOARD SHORTCUTS';
     }
 
-    /* POV exit overlay title */
+    /* POV overlay title */
     if (povExitOverlay) {
       povExitOverlay.title = isAr
         ? 'اضغط للخروج من وضع POV'
-        : 'Click or tap anywhere to exit POV';
+        : 'Tap anywhere to exit POV';
+    }
+
+    /* Mobile menu button */
+    if (mobileMenuBtn) {
+      mobileMenuBtn.setAttribute(
+        'aria-label',
+        isAr ? 'فتح قائمة الصيغ' : 'Open formula panel'
+      );
     }
 
     updatePanelToggleIcon();
@@ -1188,11 +1270,19 @@ window.UI = (function () {
      Called every frame from main.js masterLoop
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+  /**
+   * updateSyncHUD — refresh all sync visualisations.
+   * @param {Object} m2d    Engine2D metrics
+   * @param {Object} sync   SyncController output
+   * @param {Object} mAudio AudioEngine metrics
+   */
   function updateSyncHUD(m2d, sync, mAudio) {
 
     /* ── Sync bars ── */
-    const freq2d   = Math.min(Math.abs(m2d.frequency   || 0), 1.0);
-    const scale3d  = Math.min(Math.abs(1.0 - (sync.scaleMult || 1.0)), 1.0);
+    const freq2d   = Math.min(
+      Math.abs(m2d.frequency   || 0), 1.0);
+    const scale3d  = Math.min(
+      Math.abs(1.0 - (sync.scaleMult || 1.0)), 1.0);
     const omega    = mAudio
       ? Math.min(mAudio.bassSmooth || 0, 1.0)
       : 0;
@@ -1201,40 +1291,45 @@ window.UI = (function () {
     const pct3d    = Math.round(scale3d * 100);
     const pctOmega = Math.round(omega   * 100);
 
-    if (el.sync2dFill)    el.sync2dFill.style.width    = pct2d    + '%';
-    if (el.sync3dFill)    el.sync3dFill.style.width    = pct3d    + '%';
-    if (el.syncOmegaFill) el.syncOmegaFill.style.width = pctOmega + '%';
-    if (el.sync2dNum)     el.sync2dNum.textContent     = pct2d    + '%';
-    if (el.sync3dNum)     el.sync3dNum.textContent     = pct3d    + '%';
-    if (el.syncOmegaNum)  el.syncOmegaNum.textContent  = pctOmega + '%';
+    if (el.sync2dFill) {
+      el.sync2dFill.style.width    = pct2d    + '%';
+    }
+    if (el.sync3dFill) {
+      el.sync3dFill.style.width    = pct3d    + '%';
+    }
+    if (el.syncOmegaFill) {
+      el.syncOmegaFill.style.width = pctOmega + '%';
+    }
+    if (el.sync2dNum)     el.sync2dNum.textContent    = pct2d    + '%';
+    if (el.sync3dNum)     el.sync3dNum.textContent    = pct3d    + '%';
+    if (el.syncOmegaNum)  el.syncOmegaNum.textContent = pctOmega + '%';
 
-    /* ── Texture sync row (v2.0) ── */
+    /* ── Texture sync row ── */
     let isLiveTex = true;
     try {
-      const texStatus = Cube3D.getTexSyncStatus();
-      isLiveTex = texStatus.mode === 'LIVE_TEXTURE';
+      const ts  = Cube3D.getTexSyncStatus();
+      isLiveTex = ts.mode === 'LIVE_TEXTURE';
     } catch (e) {}
 
     if (el.syncTexFill) {
-      el.syncTexFill.style.width      = isLiveTex ? '100%' : '22%';
+      el.syncTexFill.style.width =
+        isLiveTex ? '100%' : '22%';
       el.syncTexFill.style.background = isLiveTex
-        ? 'linear-gradient(90deg, rgba(0,240,255,0.3), #00ff88)'
-        : 'linear-gradient(90deg, rgba(139,0,255,0.3), #8b00ff)';
+        ? 'linear-gradient(90deg,rgba(0,240,255,.3),#00ff88)'
+        : 'linear-gradient(90deg,rgba(139,0,255,.3),#8b00ff)';
     }
-
     if (el.syncTexNum) {
-      el.syncTexNum.textContent  = isLiveTex ? 'LIVE' : 'GLSL';
-      el.syncTexNum.style.color  = isLiveTex
-        ? 'var(--green)'
-        : 'var(--violet)';
+      el.syncTexNum.textContent =
+        isLiveTex ? 'LIVE' : 'GLSL';
+      el.syncTexNum.style.color = isLiveTex
+        ? 'var(--green)' : 'var(--violet)';
     }
 
-    /* ── Rotation direction arrows ── */
+    /* ── Direction arrows (always opposite) ── */
     if (el.dir2d) {
       el.dir2d.textContent = m2d.clockwise ? '↻' : '↺';
     }
     if (el.dir3d) {
-      /* Always opposite of 2D — inversion symmetry */
       el.dir3d.textContent = m2d.clockwise ? '↺' : '↻';
     }
 
@@ -1242,7 +1337,7 @@ window.UI = (function () {
     fpsFrames++;
     const now = performance.now();
     if (now - fpsLastTime >= 500) {
-      smoothFPS   = Math.round(
+      smoothFPS = Math.round(
         fpsFrames / ((now - fpsLastTime) / 1000)
       );
       smoothFPS   = Math.min(smoothFPS, 999);
@@ -1251,7 +1346,6 @@ window.UI = (function () {
 
       if (el.fpsValue) {
         el.fpsValue.textContent = smoothFPS;
-        /* Colour-coded: green=good, yellow=ok, red=low */
         el.fpsValue.style.color =
           smoothFPS >= 50 ? '#00ff88' :
           smoothFPS >= 30 ? '#ffd700' : '#ff2244';
@@ -1262,9 +1356,9 @@ window.UI = (function () {
     if (mAudio && el.beatDot) {
       if (mAudio.beatDetect) {
         el.beatDot.classList.add('active');
-        beatFlashTimer = 6; /* hold for 6 frames */
+        beatFlashTimer = 6; /* hold 6 frames */
 
-        /* Pulse shatter button on beat */
+        /* Pulse shatter button */
         if (el.btnShatter) {
           el.btnShatter.classList.add('beat-active');
           setTimeout(() => {
@@ -1277,14 +1371,12 @@ window.UI = (function () {
           el.beatDot.classList.remove('active');
         }
       }
-
-      /* Show BPM in tooltip */
       if (mAudio.bpm > 0) {
         el.beatDot.title = `${mAudio.bpm} BPM`;
       }
     }
 
-    /* ── Tex dot state ── */
+    /* ── Tex dot ── */
     if (el.texDot) {
       el.texDot.classList.toggle('inactive', !isLiveTex);
     }
@@ -1292,7 +1384,7 @@ window.UI = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 17 — TOAST STYLES (INJECTED)
+     SECTION 17 — TOAST CSS INJECTION
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function injectToastStyles() {
@@ -1303,27 +1395,27 @@ window.UI = (function () {
     style.textContent = `
       .toast {
         position:        fixed;
-        bottom:          calc(var(--bar-h, 76px) + 16px);
+        bottom:          calc(var(--bar-h, 72px) + var(--safe-bottom, 0px) + 12px);
         left:            50%;
         transform:       translateX(-50%) translateY(20px);
         z-index:         1000;
-        padding:         9px 22px;
+        padding:         8px 20px;
         border-radius:   var(--r-md, 8px);
         font-family:     var(--font-mono, monospace);
-        font-size:       0.70rem;
-        letter-spacing:  0.10em;
+        font-size:       0.68rem;
+        letter-spacing:  0.08em;
         color:           var(--text-bright, #f0f8ff);
-        background:      rgba(0, 8, 28, 0.90);
+        background:      rgba(0, 8, 28, 0.92);
         border:          1px solid rgba(0, 200, 255, 0.25);
-        backdrop-filter: blur(12px);
+        backdrop-filter: blur(14px);
         pointer-events:  none;
         white-space:     nowrap;
         opacity:         0;
-        transition:      opacity 0.25s ease,
-                         transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-        max-width:       80vw;
+        max-width:       85vw;
         overflow:        hidden;
         text-overflow:   ellipsis;
+        transition:      opacity 0.24s ease,
+                         transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
       }
       .toast-visible {
         opacity:   1;
@@ -1331,16 +1423,16 @@ window.UI = (function () {
       }
       .toast-hiding {
         opacity:   0;
-        transform: translateX(-50%) translateY(-10px);
+        transform: translateX(-50%) translateY(-8px);
       }
       .toast-error {
         border-color: rgba(255, 34, 68, 0.45);
-        background:   rgba(40, 0, 8, 0.92);
+        background:   rgba(40, 0, 8, 0.94);
         color:        #ff8899;
       }
       .toast-beat {
         border-color: rgba(255, 215, 0, 0.45);
-        background:   rgba(20, 15, 0, 0.92);
+        background:   rgba(20, 15, 0, 0.94);
         color:        var(--gold, #ffd700);
       }
     `;
@@ -1350,28 +1442,26 @@ window.UI = (function () {
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 18 — INIT
-     Called once from main.js after engines start
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function init() {
-
     /* 1. Inject toast CSS */
     injectToastStyles();
 
-    /* 2. Cache DOM references */
+    /* 2. Cache all DOM references */
     cacheElements();
 
-    /* 3. Create POV exit overlay
-          MUST happen before bindHeaderButtons() */
+    /* 3. Create POV exit overlay BEFORE bindHeaderButtons */
     createPOVExitOverlay();
 
     /* 4. Build preset list */
     buildPresetList();
 
-    /* 5. Wire controls */
+    /* 5. Wire all controls */
     bindSliders();
     bindHeaderButtons();
     bindActionButtons();
+    bindMobileMenu();
     bindPanelControls();
     bindShortcutsOverlay();
 
@@ -1381,15 +1471,16 @@ window.UI = (function () {
     /* 7. Set initial active label */
     updateActiveLabel(0);
 
-    /* 8. Debug verification */
+    /* 8. Verify preset list built correctly */
     const itemCount = el.presetList
       ? el.presetList.querySelectorAll('.preset-item').length
       : 0;
 
     console.info(
       `[UI] v2.0 initialised. ` +
-      `${itemCount} preset items rendered. ` +
-      `POV exit overlay: ${povExitOverlay ? 'ready' : 'MISSING'}`
+      `${itemCount} presets rendered. ` +
+      `POV overlay: ${povExitOverlay ? 'ready' : 'MISSING'}. ` +
+      `Mobile menu: ${mobileMenuBtn ? 'ready' : 'MISSING'}.`
     );
 
     if (itemCount === 0) {
@@ -1401,14 +1492,11 @@ window.UI = (function () {
 
     /* 9. Welcome toast */
     setTimeout(() => {
-      showToast(
-        lang === 'ar'
-          ? 'اختر صيغة من القائمة · المكعب يرتديها مباشرة'
-          : 'Pick a formula — cube wears it live',
-        'info',
-        3500
-      );
-    }, 800);
+      showToast(lang === 'ar'
+        ? 'اختر صيغة من القائمة ☰'
+        : 'Pick a formula from the panel ☰',
+        'info', 3500);
+    }, 900);
   }
 
 
