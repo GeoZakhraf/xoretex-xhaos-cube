@@ -1,221 +1,294 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  GeoZakhraf Xhaos Engine — main.js
+ *  GeoZakhraf Xhaos Engine v2.0 — main.js
  *
- *  Application Bootstrap & Master Orchestrator
+ *  Master Orchestrator & Bootstrap
+ *  ────────────────────────────────
+ *  Core Integration Changes from v1.0:
  *
- *  · Loader sequence with staged progress simulation
- *  · SyncController — Inversion Symmetry brain
- *      ↳ Rotation Inversion  (CW 2D → CCW 3D)
- *      ↳ Scale Inversion     (outward 2D → implode 3D)
- *      ↳ Audio Reactivity    (beat → shatter, energy → bloom)
- *      ↳ Frequency Coupling  (high 2D chaos → shrink 3D)
- *  · Master RAF loop — ties all engines together
- *  · Performance monitor — adaptive quality scaling
- *  · Error boundary — graceful degradation
- *  · Visibility API — pause when tab is hidden
- *  · Mobile orientation handler
+ *  1. ENGINE INIT ORDER (Critical)
+ *     Engine2D must fully initialise and begin rendering
+ *     canvas2d BEFORE Cube3D.init() is called.
+ *     Cube3D.init() receives canvas2d as its second argument
+ *     and immediately wraps it in THREE.CanvasTexture.
+ *     Order: Engine2D.init() → Engine2D.start() → Cube3D.init()
  *
- *  Architecture: IIFE + top-level DOMContentLoaded
+ *  2. FRAME EXECUTION ORDER (Critical)
+ *     Within each animation frame the sequence must be:
+ *     a. Engine2D renders particles onto canvas2d
+ *     b. Cube3D.updateLiveTexture() marks texture dirty
+ *     c. Cube3D composer.render() uploads canvas2d to GPU
+ *     d. AudioEngine.update() reads microphone FFT
+ *     e. SyncController.tick() computes inversion values
+ *     f. UI.updateSyncHUD() refreshes the interface
+ *     Engine2D and Cube3D have independent RAF loops for
+ *     rendering. The master loop handles sync + audio + UI.
+ *
+ *  3. SYNC CONTROLLER — Inversion Symmetry Brain
+ *     Reads Engine2D metrics and computes the mathematically
+ *     inverted response for Cube3D:
+ *     · CW 2D rotation   → CCW 3D rotation
+ *     · Outward 2D flow  → 3D implosion (scale < 1)
+ *     · High 2D energy   → additional 3D compression
+ *     · Audio beat       → trigger shatter
+ *     · High audio freq  → bloom intensity
+ *     · BPM              → rotation speed modulation
+ *
+ *  4. TEXTURE MODE BUTTON
+ *     New "LIVE TEX" toggle button in header wired here.
+ *     T key also toggles between live texture and shader mode.
+ *
  * ═══════════════════════════════════════════════════════════════
  */
 
 'use strict';
 
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SECTION 1 — SYNC CONTROLLER
-   The mathematical "brain" that links
-   Engine2D and Cube3D with inversion logic.
+   The mathematical inversion brain.
+   Links Engine2D metrics to Cube3D responses
+   with mathematically opposite values.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 const SyncController = (function () {
 
-  /* ── Internal State ── */
+  /* ── Smooth State ── */
+  let smoothedScale   = 1.0;
+  let smoothedBloom   = 1.2;
+  let smoothedEnergy  = 0.0;
+  let smoothedSpeed   = 1.0;
+
+  /* ── Beat / Shatter State ── */
   let shatterArmed    = false;
-  let shatterCooldown = 0;     // frames
-  const SHATTER_COOLDOWN = 150; // ~2.5s at 60fps
+  let shatterCooldown = 0;
+  const SHATTER_COOLDOWN   = 150;   // ~2.5s at 60fps
+  const BEAT_STRENGTH_MIN  = 0.55;  // minimum beat strength to shatter
 
-  /* ── Smoothed sync values ──
-     We smooth the raw metrics before passing to
-     Cube3D to avoid jittery scale/bloom changes. */
-  let smoothedScale  = 1.0;
-  let smoothedBloom  = 1.2;
-  let smoothedEnergy = 0.0;
+  /* ── Frequency History ──
+     Track 2D frequency over 30 frames to detect
+     sustained high-chaos states that compress 3D further */
+  const FREQ_HIST_SIZE = 30;
+  const freqHistory    = new Float32Array(FREQ_HIST_SIZE);
+  let   freqHistIdx    = 0;
 
-  /* ── History for frequency analysis ── */
-  const FREQ_HISTORY  = 30;
-  const freqHistory   = new Float32Array(FREQ_HISTORY);
-  let   freqHistIdx   = 0;
+  /* ── Rotation Smoothing ──
+     Prevent direction flip jitter when 2D
+     oscillates near the CW/CCW boundary */
+  let   lastRotDir     = 1;
+  let   rotDirHoldFrames = 0;
+  const ROT_DIR_HOLD   = 20;  // hold direction for N frames before switching
+
+  /* ── BPM Rotation Modulation ── */
+  let   bpmRotFactor   = 1.0;
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     tick — called every frame from master loop
-     Returns sync data object for Cube3D.
+     LINEAR INTERPOLATION UTILITY
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     TICK — called every master loop frame
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   /**
-   * tick — compute inversion sync for this frame.
+   * tick — compute full inversion sync for this frame.
    *
-   * Inversion Rules:
-   *  1. CW 2D rotation  → CCW 3D rotation  (dir = -1)
-   *  2. Outward 2D flow → 3D implodes      (scale < 1)
-   *  3. High 2D energy  → 3D shrinks more  (stronger scale reduction)
-   *  4. Audio beat      → trigger shatter
-   *  5. Audio high-freq → drive bloom up
-   *  6. Audio amplitude → modulate speed
-   *
-   * @param {Object} m2d    Engine2D.getMetrics()
-   * @param {Object} mAudio AudioEngine.getMetrics()
-   * @returns {Object} syncData for Cube3D.setSyncData()
+   * @param  {Object} m2d     Engine2D.getMetrics()
+   * @param  {Object} mAudio  AudioEngine.getMetrics()
+   * @returns {Object} syncData pushed to Cube3D.setSyncData()
    */
   function tick(m2d, mAudio) {
 
-    /* ── 1. ROTATION INVERSION ────────────────────
-       2D clockwise  → 3D counter-clockwise
-       2D CCW        → 3D clockwise
+    /* ════════════════════════════════════════════
+       RULE 1 — ROTATION INVERSION
+       ────────────────────────────────────────────
+       If 2D particles rotate clockwise  → 3D rotates CCW (dir = -1)
+       If 2D particles rotate CCW        → 3D rotates CW  (dir = +1)
 
-       The visual result: the two systems always
-       spin in opposite directions, creating a
-       "balanced tension" aesthetic.
-    ─────────────────────────────────────────── */
-    const rotationDir = m2d.clockwise ? -1 : 1;
+       The 2D clockwise metric is boolean. We apply a hold
+       timer before switching direction to prevent jitter
+       when the 2D field oscillates near the boundary.
+    ════════════════════════════════════════════ */
+    let rotationDir;
 
-    /* ── 2. SCALE INVERSION ───────────────────────
-       outwardFlow > 0 = 2D expanding outward
-       → 3D should IMPLODE (scale shrinks)
+    if (rotDirHoldFrames > 0) {
+      /* Hold current direction during transition window */
+      rotationDir = lastRotDir;
+      rotDirHoldFrames--;
+    } else {
+      /* Compute new direction — opposite of 2D */
+      const newDir = m2d.clockwise ? -1 : 1;
+      if (newDir !== lastRotDir) {
+        /* Direction changed — start hold window */
+        rotDirHoldFrames = ROT_DIR_HOLD;
+      }
+      rotationDir = newDir;
+      lastRotDir  = newDir;
+    }
 
-       outwardFlow < 0 = 2D collapsing inward
-       → 3D should EXPAND (scale grows)
+    /* ════════════════════════════════════════════
+       RULE 2 — SCALE INVERSION
+       ────────────────────────────────────────────
+       2D outwardFlow > 0 = particles expanding outward
+       → 3D cube implodes (scaleMult < 1.0)
 
-       Formula: scaleMult = 1.0 - (outward × factor)
-       Clamped to [0.35 .. 1.65] for stability.
-    ─────────────────────────────────────────── */
-    const outward   = Math.max(-1, Math.min(1, m2d.outwardFlow || 0));
-    let   scaleMult = 1.0 - (outward * 0.38);
-    scaleMult       = Math.max(0.35, Math.min(1.65, scaleMult));
+       2D outwardFlow < 0 = particles collapsing inward
+       → 3D cube expands (scaleMult > 1.0)
 
-    /* ── 3. ENERGY-REACTIVE FREQUENCY COUPLING ────
-       High 2D particle energy (fast-moving chaos)
-       additionally reduces 3D scale, creating a
-       "containment" effect where wild 2D activity
-       compresses the 3D cube further.
-    ─────────────────────────────────────────── */
-    const energy2d  = Math.max(0, Math.min(1, m2d.energy || 0));
+       Formula: scaleMult = 1.0 - (outward × 0.38)
+       Clamped to [0.35 .. 1.65]
+    ════════════════════════════════════════════ */
+    const outward = Math.max(-1.0, Math.min(1.0, m2d.outwardFlow || 0));
+    let scaleMult = 1.0 - (outward * 0.38);
+    scaleMult     = Math.max(0.35, Math.min(1.65, scaleMult));
 
-    /* Track frequency history for smoothed reading */
+    /* ════════════════════════════════════════════
+       RULE 3 — FREQUENCY-ENERGY COUPLING
+       ────────────────────────────────────────────
+       High sustained 2D energy (fast chaotic motion)
+       additionally compresses the 3D cube.
+       This creates a "containment pressure" effect:
+       the more chaotic the 2D field, the more the
+       3D cube is squeezed inward.
+    ════════════════════════════════════════════ */
+    const energy2d = Math.max(0, Math.min(1, m2d.energy || 0));
+
+    /* Update frequency history */
     freqHistory[freqHistIdx] = m2d.frequency || 0;
-    freqHistIdx = (freqHistIdx + 1) % FREQ_HISTORY;
+    freqHistIdx = (freqHistIdx + 1) % FREQ_HIST_SIZE;
 
+    /* Rolling average frequency */
     let freqAvg = 0;
-    for (let i = 0; i < FREQ_HISTORY; i++) freqAvg += freqHistory[i];
-    freqAvg /= FREQ_HISTORY;
+    for (let i = 0; i < FREQ_HIST_SIZE; i++) freqAvg += freqHistory[i];
+    freqAvg /= FREQ_HIST_SIZE;
 
-    /* High sustained frequency → additional shrink */
-    if (freqAvg > 0.7) {
-      const shrinkFactor = (freqAvg - 0.7) / 0.3; // 0..1
-      scaleMult -= shrinkFactor * 0.25;
+    /* High sustained frequency → additional compression */
+    if (freqAvg > 0.65) {
+      const pressure = (freqAvg - 0.65) / 0.35; // normalised 0..1
+      scaleMult -= pressure * 0.22;
       scaleMult  = Math.max(0.28, scaleMult);
     }
 
-    /* ── 4. SMOOTH ALL VALUES ─────────────────────
-       Prevent jitter from frame-to-frame noise.
-       Different rates: scale is slow, energy is fast.
-    ─────────────────────────────────────────── */
+    /* ════════════════════════════════════════════
+       RULE 4 — SMOOTH ALL VALUES
+       ────────────────────────────────────────────
+       Exponential smoothing prevents jitter from
+       frame-to-frame metric fluctuations.
+       Different rates per channel:
+       · Scale  — slow (0.055) — prevents size jitter
+       · Energy — medium (0.12) — responsive glow
+    ════════════════════════════════════════════ */
     smoothedScale  = lerp(smoothedScale,  scaleMult, 0.055);
     smoothedEnergy = lerp(smoothedEnergy, energy2d,  0.12);
 
-    /* ── 5. AUDIO PROCESSING ──────────────────────
-       Only active when AudioEngine is running.
-    ─────────────────────────────────────────── */
-    let audioBloom  = null;
-    let audioSpeed  = null;
-
+    /* ════════════════════════════════════════════
+       RULE 5 — AUDIO REACTIVITY
+       ────────────────────────────────────────────
+       Only active when AudioEngine has microphone.
+       Multiple channels drive different 3D parameters.
+    ════════════════════════════════════════════ */
     if (mAudio && mAudio.active) {
 
-      /* ── 5a. Bloom driven by high-frequency energy ──
-         Brilliance/presence → more bloom glow
-         Range: [0.6 .. 3.5] */
-      const targetBloom = 0.6 +
-        mAudio.highEnergy  * 1.4 +
-        mAudio.presEnergy  * 0.8 +
-        mAudio.bassSmooth  * 0.5;
+      /* ── 5a. Bloom from high frequencies ──
+         Brilliance + presence energy → neon glow intensity
+         Range: [0.5 .. 3.8] */
+      const targetBloom =
+        0.5 +
+        mAudio.highEnergy  * 1.6 +
+        mAudio.presEnergy  * 0.9 +
+        mAudio.bassSmooth  * 0.4;
       smoothedBloom = lerp(smoothedBloom, targetBloom, 0.08);
-      audioBloom    = Math.max(0.4, Math.min(3.5, smoothedBloom));
+      Cube3D.setBloom(Math.max(0.4, Math.min(3.8, smoothedBloom)));
 
-      /* ── 5b. Speed driven by mid energy ──
-         Mid-range energy makes both engines
-         run faster, creating reactive urgency. */
-      audioSpeed = 1.0 +
+      /* ── 5b. Speed from mid + amplitude ──
+         Mid-range energy drives tempo reactivity */
+      const targetSpeed =
+        1.0 +
         mAudio.midEnergy  * 1.8 +
         mAudio.amplitude  * 1.2;
-      audioSpeed = Math.max(0.3, Math.min(4.5, audioSpeed));
+      smoothedSpeed = lerp(smoothedSpeed, targetSpeed, 0.10);
+      const clampedSpeed = Math.max(0.2, Math.min(4.5, smoothedSpeed));
+      Engine2D.setParams({ speed: clampedSpeed });
+      Cube3D.setParams({   speed: clampedSpeed });
 
-      /* ── 5c. Additional scale modulation from bass ──
-         Strong bass → momentary cube pulse outward
-         (inverse to normal rule — bass "pushes" the cube) */
-      const bassPulse = mAudio.bassSmooth * 0.2;
-      smoothedScale  += bassPulse * 0.4;
-      smoothedScale   = Math.max(0.28, Math.min(1.8, smoothedScale));
+      /* ── 5c. Bass pulse — momentary cube push ──
+         Strong bass briefly expands the cube
+         (against the normal inversion rule)
+         creating a "thump" physical response */
+      const bassPulse   = mAudio.bassSmooth * 0.18;
+      smoothedScale    += bassPulse * 0.35;
+      smoothedScale     = Math.max(0.28, Math.min(1.85, smoothedScale));
 
-      /* ── 5d. Beat → shatter trigger ──
-         With adaptive cooldown to prevent
-         shattering on every single kick drum.
-         Only fires if beat strength is significant. */
-      shatterCooldown = Math.max(0, shatterCooldown - 1);
+      /* ── 5d. BPM rotation modulation ──
+         BPM above 120 speeds up rotation
+         BPM below 120 slows it down */
+      if (mAudio.bpm > 30) {
+        bpmRotFactor = lerp(
+          bpmRotFactor,
+          mAudio.bpm / 120.0,
+          0.02
+        );
+        bpmRotFactor = Math.max(0.3, Math.min(2.5, bpmRotFactor));
+        Cube3D.setParams({
+          rotation: 0.3 * bpmRotFactor *
+                    (0.8 + mAudio.amplitude * 0.5)
+        });
+      }
 
-      if (mAudio.beatDetect        &&
-          mAudio.beatStrength > 0.55 &&
-          !shatterArmed            &&
+      /* ── 5e. Beat → shatter trigger ──
+         Fires on significant audio beats only.
+         Strong cooldown prevents shatter spam. */
+      if (shatterCooldown > 0) shatterCooldown--;
+
+      if (mAudio.beatDetect         &&
+          mAudio.beatStrength > BEAT_STRENGTH_MIN &&
+          !shatterArmed             &&
           shatterCooldown === 0) {
 
         shatterArmed    = true;
         shatterCooldown = SHATTER_COOLDOWN;
 
         Cube3D.triggerShatter();
-        UI.triggerShatterVFX();
 
-        /* Disarm after a frame */
+        /* UI flash VFX */
+        if (window.UI && UI.triggerShatterVFX) {
+          UI.triggerShatterVFX();
+        }
+
+        /* Disarm after one frame gap */
         setTimeout(() => { shatterArmed = false; }, 100);
-      }
-
-      /* ── 5e. Apply audio-driven speed to engines ── */
-      Engine2D.setParams({ speed: audioSpeed });
-      Cube3D.setParams({   speed: audioSpeed });
-
-      /* ── 5f. Apply bloom to 3D ── */
-      Cube3D.setBloom(audioBloom);
-
-      /* ── 5g. BPM-sync auto-rotation ──
-         Gently nudge rotation speed toward BPM rhythm. */
-      if (mAudio.bpm > 0) {
-        const bpmFactor = mAudio.bpm / 120.0; // normalise around 120 BPM
-        Cube3D.setParams({
-          rotation: 0.3 * bpmFactor * (0.8 + mAudio.amplitude * 0.4)
-        });
       }
     }
 
-    /* ── 6. BUILD & RETURN SYNC DATA ────────────── */
+    /* ════════════════════════════════════════════
+       BUILD & RETURN SYNC PACKAGE
+    ════════════════════════════════════════════ */
     return {
-      rotationDir,
-      scaleMult: smoothedScale,
-      energy:    smoothedEnergy
+      rotationDir,               // +1 or -1 — opposite of 2D
+      scaleMult:  smoothedScale, // [0.28..1.85] — inverted from outward flow
+      energy:     smoothedEnergy // [0..1] — 2D energy level
     };
   }
 
-  /* ── Utility: linear interpolation ── */
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
-  /* ── Reset smooth state (e.g. on preset change) ── */
+  /**
+   * reset — clear all smooth state.
+   * Called on preset change or engine restart.
+   */
   function reset() {
-    smoothedScale  = 1.0;
-    smoothedBloom  = 1.2;
-    smoothedEnergy = 0.0;
+    smoothedScale    = 1.0;
+    smoothedBloom    = 1.2;
+    smoothedEnergy   = 0.0;
+    smoothedSpeed    = 1.0;
+    bpmRotFactor     = 1.0;
+    shatterCooldown  = 0;
+    shatterArmed     = false;
+    rotDirHoldFrames = 0;
+    lastRotDir       = 1;
     freqHistory.fill(0);
-    freqHistIdx    = 0;
-    shatterCooldown = 0;
-    shatterArmed   = false;
+    freqHistIdx = 0;
   }
 
   return { tick, reset };
@@ -225,198 +298,190 @@ const SyncController = (function () {
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SECTION 2 — PERFORMANCE MONITOR
-   Tracks FPS and adaptively reduces quality
-   if the device can't sustain 60 FPS.
+   Adaptive quality scaling for mobile devices
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 const PerformanceMonitor = (function () {
 
-  const SAMPLE_WINDOW = 90;        // frames to average
-  const TARGET_FPS    = 60;
-  const LOW_FPS       = 28;        // quality reduction threshold
-  const OK_FPS        = 50;        // quality restoration threshold
+  const SAMPLE_WINDOW  = 90;
+  const LOW_FPS        = 28;
+  const OK_FPS         = 50;
+  const CHECK_INTERVAL = 180;
 
-  let fpsBuffer       = new Float32Array(SAMPLE_WINDOW);
-  let bufferIdx       = 0;
-  let frameCount      = 0;
-  let lastTs          = 0;
-  let qualityReduced  = false;
-  let qualityCheckTimer = 0;
+  let fpsBuffer        = new Float32Array(SAMPLE_WINDOW);
+  let bufIdx           = 0;
+  let totalFrames      = 0;
+  let lastTs           = 0;
+  let qualityReduced   = false;
+  let checkTimer       = 0;
 
-  const CHECK_INTERVAL = 180;     // check quality every N frames
+  /* Texture update throttle for low-end devices */
+  let texThrottle      = 1;   // update texture every N frames
+  let texFrameCounter  = 0;
 
-  /**
-   * update — call every frame with current timestamp.
-   * Returns smoothed FPS.
-   */
   function update(ts) {
-    if (lastTs === 0) { lastTs = ts; return TARGET_FPS; }
+    if (lastTs === 0) { lastTs = ts; return 60; }
 
-    const delta    = ts - lastTs;
-    lastTs         = ts;
-    frameCount++;
-    qualityCheckTimer++;
+    const delta  = ts - lastTs;
+    lastTs       = ts;
+    totalFrames++;
+    checkTimer++;
 
-    /* Instantaneous FPS from delta */
-    const instFPS = delta > 0 ? 1000 / delta : TARGET_FPS;
+    const instFPS        = delta > 0 ? 1000 / delta : 60;
+    fpsBuffer[bufIdx]    = instFPS;
+    bufIdx               = (bufIdx + 1) % SAMPLE_WINDOW;
 
-    /* Store in circular buffer */
-    fpsBuffer[bufferIdx] = instFPS;
-    bufferIdx = (bufferIdx + 1) % SAMPLE_WINDOW;
-
-    /* Average FPS over window */
-    let sum = 0;
-    const filled = Math.min(frameCount, SAMPLE_WINDOW);
+    const filled = Math.min(totalFrames, SAMPLE_WINDOW);
+    let   sum    = 0;
     for (let i = 0; i < filled; i++) sum += fpsBuffer[i];
     const avgFPS = sum / filled;
 
-    /* Adaptive quality adjustment every CHECK_INTERVAL frames */
-    if (qualityCheckTimer >= CHECK_INTERVAL) {
-      qualityCheckTimer = 0;
+    if (checkTimer >= CHECK_INTERVAL) {
+      checkTimer = 0;
       adaptQuality(avgFPS);
     }
 
     return Math.round(avgFPS);
   }
 
-  /**
-   * adaptQuality — reduce or restore particle density
-   * based on sustained FPS.
-   */
   function adaptQuality(avgFPS) {
     if (avgFPS < LOW_FPS && !qualityReduced) {
-      /* Reduce density to recover FPS */
       qualityReduced = true;
+      texThrottle    = 2;   // update texture every 2nd frame
       Engine2D.setParams({ density: 1200 });
       console.info(
-        `[PerfMonitor] FPS dropped to ${avgFPS}. ` +
-        'Reducing particle density to 1200.'
+        `[PerfMonitor] Low FPS (${Math.round(avgFPS)}). ` +
+        'Reducing density → 1200, texture throttle → 2.'
       );
-      UI.showToast('Performance mode: density reduced', 'info', 3000);
+      if (window.UI) {
+        UI.showToast('Performance mode active', 'info', 3000);
+      }
 
     } else if (avgFPS >= OK_FPS && qualityReduced) {
-      /* Restore quality */
       qualityReduced = false;
+      texThrottle    = 1;   // restore full texture update rate
       Engine2D.setParams({ density: 2800 });
       console.info(
-        `[PerfMonitor] FPS restored to ${avgFPS}. ` +
-        'Restoring particle density to 2800.'
+        `[PerfMonitor] FPS restored (${Math.round(avgFPS)}). ` +
+        'Restoring density → 2800, texture throttle → 1.'
       );
     }
   }
 
-  function getFrameCount() { return frameCount; }
-  function isReduced()     { return qualityReduced; }
+  /* Returns true if texture should update this frame */
+  function shouldUpdateTexture() {
+    texFrameCounter++;
+    if (texFrameCounter >= texThrottle) {
+      texFrameCounter = 0;
+      return true;
+    }
+    return false;
+  }
 
-  return { update, getFrameCount, isReduced };
+  function getFrameCount()  { return totalFrames; }
+  function isReduced()      { return qualityReduced; }
+  function getTexThrottle() { return texThrottle; }
+
+  return {
+    update,
+    shouldUpdateTexture,
+    getFrameCount,
+    isReduced,
+    getTexThrottle
+  };
 
 })();
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SECTION 3 — LOADER SEQUENCE
-   Staged progress bar with realistic status messages
+   9-stage animated progress with formula preview
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-/**
- * runLoader — animate the loading screen.
- * Returns a Promise that resolves when complete.
- *
- * @returns {Promise<void>}
- */
 function runLoader() {
   return new Promise(resolve => {
 
-    const barFill  = document.getElementById('loader-bar-fill');
-    const barGlow  = document.getElementById('loader-bar-glow');
-    const percent  = document.getElementById('loader-percent');
-    const status   = document.getElementById('loader-status');
-    const formula  = document.getElementById('loader-formula');
+    const barFill = document.getElementById('loader-bar-fill');
+    const barGlow = document.getElementById('loader-bar-glow');
+    const percent = document.getElementById('loader-percent');
+    const status  = document.getElementById('loader-status');
+    const formula = document.getElementById('loader-formula');
+    const isAr    = document.getElementById('html-root').lang === 'ar';
 
-    /* Loading stage definitions */
     const stages = [
       {
-        target:   8,
-        duration: 200,
-        message:  'Bootstrapping engine core…',
-        messageAr:'تهيئة النواة الأساسية…',
-        formula:  'n(x, y) = hash(x·127.1 + y·311.7)'
+        target:    8,
+        duration:  200,
+        message:   'Bootstrapping engine core…',
+        messageAr: 'تهيئة النواة الأساسية…',
+        formula:   'n(x,y) = hash(x·127.1 + y·311.7) · 43758.5'
       },
       {
-        target:   20,
-        duration: 350,
-        message:  'Loading mathematical library…',
-        messageAr:'تحميل المكتبة الرياضية…',
-        formula:  'fBm(x, y, 8) = Σ aⁱ · noise(fⁱ · x, fⁱ · y)'
+        target:    20,
+        duration:  350,
+        message:   'Loading 60 mathematical formulas…',
+        messageAr: 'تحميل 60 صيغة رياضية…',
+        formula:   'fBm(x,y,8) = Σ 0.5ⁱ · noise(2ⁱ·x, 2ⁱ·y)'
       },
       {
-        target:   35,
-        duration: 400,
-        message:  'Compiling 60 GLSL shaders…',
-        messageAr:'تجميع 60 شيدر GLSL…',
-        formula:  'warp(p, t, n) → iterative noise offset domain'
+        target:    34,
+        duration:  380,
+        message:   'Initialising 2D particle engine…',
+        messageAr: 'تهيئة محرك الجسيمات ثنائي الأبعاد…',
+        formula:   'v(t+1) = v(t)·0.82 + cos(F(x,y,t))·speed·0.18'
       },
       {
-        target:   50,
-        duration: 380,
-        message:  'Initialising 3D scene…',
-        messageAr:'تهيئة المشهد ثلاثي الأبعاد…',
-        formula:  'F(x,y,t) = atan2(y−cy, x−cx) + 0.6t + pull'
+        target:    48,
+        duration:  360,
+        message:   'Building live texture bridge…',
+        messageAr: 'بناء جسر النسيج الحي…',
+        formula:   'THREE.CanvasTexture(canvas2d) → MeshBasicMaterial.map'
       },
       {
-        target:   63,
-        duration: 320,
-        message:  'Building particle system…',
-        messageAr:'بناء نظام الجسيمات…',
-        formula:  'v(t+1) = v(t)·0.82 + cos(angle)·speed·0.18'
+        target:    60,
+        duration:  340,
+        message:   'Initialising 3D cube engine…',
+        messageAr: 'تهيئة محرك المكعب ثلاثي الأبعاد…',
+        formula:   'cube.material.map.needsUpdate = true @ 60fps'
       },
       {
-        target:   75,
-        duration: 350,
-        message:  'Configuring post-processing…',
-        messageAr:'إعداد معالجة ما بعد التصيير…',
-        formula:  'bloom(x) = UnrealBloom(strength=1.2, radius=0.6)'
+        target:    72,
+        duration:  320,
+        message:   'Configuring post-processing stack…',
+        messageAr: 'إعداد معالجة ما بعد التصيير…',
+        formula:   'Bloom(1.2) → ChromaAberration → FilmGrain → Screen'
       },
       {
-        target:   85,
-        duration: 300,
-        message:  'Activating inversion sync…',
-        messageAr:'تفعيل التزامن المعكوس…',
-        formula:  'scaleMult = 1.0 − (outwardFlow × 0.38)'
+        target:    83,
+        duration:  300,
+        message:   'Activating inversion sync…',
+        messageAr: 'تفعيل التزامن المعكوس…',
+        formula:   'scaleMult = 1.0 − (outwardFlow × 0.38)'
       },
       {
-        target:   94,
-        duration: 280,
-        message:  'Calibrating audio analyser…',
-        messageAr:'معايرة محلل الصوت…',
-        formula:  'beat = bassEnergy > avg × (1.6 − variance·1.5)'
+        target:    93,
+        duration:  280,
+        message:   'Calibrating audio beat detector…',
+        messageAr: 'معايرة كاشف الإيقاع الصوتي…',
+        formula:   'beat = bassEnergy > avg × (1.6 − variance·1.5)'
       },
       {
-        target:   100,
-        duration: 250,
-        message:  'GeoZakhraf ready.',
-        messageAr:'جيو زخرف جاهز.',
-        formula:  'F(x,y,t) = 7·fBm(warp(0.003x, 0.003y, 0.15t, 4)) + atan2·0.2'
+        target:    100,
+        duration:  240,
+        message:   'GeoZakhraf Xhaos Engine v2.0 ready.',
+        messageAr: 'محرك جيو زخرف الفوضوي الإصدار 2.0 جاهز.',
+        formula:   '2D FLOW FIELD → LIVE TEXTURE → 3D CUBE SKIN'
       }
     ];
-
-    /* Detect language from HTML element */
-    const isAr = document.getElementById('html-root').lang === 'ar';
 
     let currentPct = 0;
     let stageIdx   = 0;
 
-    /**
-     * animateToTarget — smoothly animate progress bar
-     * from currentPct to stage.target over stage.duration ms.
-     */
-    function animateToTarget(stage) {
-      const startPct   = currentPct;
-      const targetPct  = stage.target;
-      const startTime  = performance.now();
-      const dur        = stage.duration;
+    function animateStage(stage) {
+      const startPct  = currentPct;
+      const startTime = performance.now();
+      const dur       = stage.duration;
 
-      /* Update text immediately */
       if (status)  status.textContent  =
         isAr ? stage.messageAr : stage.message;
       if (formula) formula.textContent = stage.formula;
@@ -426,30 +491,25 @@ function runLoader() {
         const progress = Math.min(elapsed / dur, 1.0);
 
         /* Ease-out cubic */
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const pct   = startPct + (targetPct - startPct) * eased;
+        const eased  = 1 - Math.pow(1 - progress, 3);
+        const pct    = startPct + (stage.target - startPct) * eased;
+        currentPct   = pct;
 
-        currentPct = pct;
-
-        /* Update bar */
         const pctStr = pct.toFixed(1) + '%';
         if (barFill)  barFill.style.width  = pctStr;
         if (barGlow)  barGlow.style.width  = pctStr;
         if (percent)  percent.textContent  = Math.floor(pct) + '%';
 
-        /* ARIA */
-        const progressBar = document.getElementById('loader-progress-bar');
-        if (progressBar) progressBar.setAttribute('aria-valuenow', Math.floor(pct));
+        const pb = document.getElementById('loader-progress-bar');
+        if (pb) pb.setAttribute('aria-valuenow', Math.floor(pct));
 
         if (progress < 1.0) {
           requestAnimationFrame(step);
         } else {
-          /* Advance to next stage */
           stageIdx++;
           if (stageIdx < stages.length) {
-            setTimeout(() => animateToTarget(stages[stageIdx]), 80);
+            setTimeout(() => animateStage(stages[stageIdx]), 80);
           } else {
-            /* All stages complete — fade out loader */
             setTimeout(() => fadeOutLoader(resolve), 300);
           }
         }
@@ -458,19 +518,13 @@ function runLoader() {
       requestAnimationFrame(step);
     }
 
-    /* Begin first stage */
-    animateToTarget(stages[stageIdx]);
+    animateStage(stages[stageIdx]);
   });
 }
 
-/**
- * fadeOutLoader — CSS fade + remove loader element.
- * @param {Function} callback  called when fade is complete
- */
 function fadeOutLoader(callback) {
   const loader = document.getElementById('loader');
   if (!loader) { callback(); return; }
-
   loader.classList.add('fade-out');
   setTimeout(() => {
     loader.style.display = 'none';
@@ -481,57 +535,197 @@ function fadeOutLoader(callback) {
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SECTION 4 — ENGINE INITIALISATION
+   Critical: order matters for live texture integration
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-/**
- * initEngines — start all three engines and the UI.
- * Wrapped in try/catch for graceful degradation.
- */
 function initEngines() {
+
+  /* ── Get Canvas Elements ── */
+  const canvas2d = document.getElementById('canvas2d');
+  const canvas3d = document.getElementById('canvas3d');
+
+  if (!canvas2d || !canvas3d) {
+    console.error('[main] Canvas elements not found.');
+    return;
+  }
+
+  /* ════════════════════════════════════════════════
+     STEP 1 — INITIALISE 2D ENGINE FIRST
+     ────────────────────────────────────────────────
+     Engine2D must start rendering onto canvas2d
+     before Cube3D creates its CanvasTexture.
+     This ensures the texture has valid pixel data
+     from frame 1 rather than a blank canvas.
+  ════════════════════════════════════════════════ */
   try {
-    /* ── 2D Flow-Field Engine ── */
-    Engine2D.init(document.getElementById('canvas2d'));
+    Engine2D.init(canvas2d);
     Engine2D.start();
-    console.info('[main] Engine2D started.');
-
+    console.info(
+      '[main] Engine2D started. ' +
+      'Rendering to canvas2d — ready for texture mapping.'
+    );
   } catch (e) {
-    console.error('[main] Engine2D failed:', e);
-    UI.showToast('2D Engine error — check console', 'error', 5000);
+    console.error('[main] Engine2D failed to start:', e);
+    if (window.UI) {
+      UI.showToast('2D Engine error', 'error', 5000);
+    }
   }
 
+  /* ════════════════════════════════════════════════
+     STEP 2 — INITIALISE 3D ENGINE WITH canvas2d REF
+     ────────────────────────────────────────────────
+     We pass canvas2d as the second argument.
+     Cube3D.init() will:
+     · Create THREE.CanvasTexture(canvas2d)
+     · Build MeshBasicMaterial with that texture
+     · Apply it to the cube faces
+     From this point the cube skin IS the 2D canvas.
+  ════════════════════════════════════════════════ */
   try {
-    /* ── 3D Cube Engine ── */
-    Cube3D.init(document.getElementById('canvas3d'));
+    Cube3D.init(canvas3d, canvas2d);
     Cube3D.start();
-    console.info('[main] Cube3D started.');
-
+    console.info(
+      '[main] Cube3D started. ' +
+      'Live texture: canvas2d → CanvasTexture → cube faces.'
+    );
   } catch (e) {
-    console.error('[main] Cube3D failed:', e);
-    UI.showToast('3D Engine error — check console', 'error', 5000);
+    console.error('[main] Cube3D failed to start:', e);
+    if (window.UI) {
+      UI.showToast('3D Engine error', 'error', 5000);
+    }
   }
 
+  /* ════════════════════════════════════════════════
+     STEP 3 — INITIALISE UI
+  ════════════════════════════════════════════════ */
   try {
-    /* ── UI System ── */
     UI.init();
     console.info('[main] UI initialised.');
-
   } catch (e) {
     console.error('[main] UI failed:', e);
+  }
+
+  /* ════════════════════════════════════════════════
+     STEP 4 — WIRE TEXTURE MODE BUTTON
+     New in v2.0 — toggles between live texture
+     and GLSL shader mode on the cube
+  ════════════════════════════════════════════════ */
+  wireTextureModeButton();
+
+  /* ════════════════════════════════════════════════
+     STEP 5 — WIRE TEX OPACITY SLIDER
+     New in v2.0 — controls live texture depth/opacity
+  ════════════════════════════════════════════════ */
+  wireTexOpacitySlider();
+}
+
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SECTION 5 — TEXTURE MODE BUTTON WIRING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function wireTextureModeButton() {
+  const btn = document.getElementById('btn-tex-mode');
+  if (!btn) return;
+
+  btn.addEventListener('click', () => {
+    const isNowTexMode = Cube3D.toggleTextureMode();
+
+    /* Update button appearance */
+    btn.classList.toggle('active', isNowTexMode);
+    btn.setAttribute('aria-pressed', isNowTexMode);
+
+    const isAr = document.getElementById('html-root').lang === 'ar';
+
+    if (isNowTexMode) {
+      btn.textContent = isAr ? '⬡ نسيج حي' : '⬡ LIVE TEX';
+      if (window.UI) {
+        UI.showToast(
+          isAr
+            ? 'وضع النسيج الحي — المكعب يرتدي الحقل ثنائي الأبعاد'
+            : 'Live Texture Mode — cube wears the 2D field'
+        );
+      }
+    } else {
+      btn.textContent = isAr ? '⬡ شيدر' : '⬡ SHADER';
+      if (window.UI) {
+        UI.showToast(
+          isAr
+            ? 'وضع الشيدر — صيغ GLSL مستقلة'
+            : 'Shader Mode — independent GLSL formulas'
+        );
+      }
+    }
+
+    /* Update texture sync HUD */
+    updateTexSyncHUD(isNowTexMode);
+  });
+
+  /* Start in active (live texture) state */
+  btn.classList.add('active');
+  btn.setAttribute('aria-pressed', 'true');
+}
+
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SECTION 6 — TEX OPACITY SLIDER WIRING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function wireTexOpacitySlider() {
+  const slider = document.getElementById('param-tex-opacity');
+  const valEl  = document.getElementById('val-tex-opacity');
+  if (!slider) return;
+
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    if (valEl) valEl.textContent = v.toFixed(2);
+    Cube3D.setParams({ texOpacity: v });
+  });
+}
+
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SECTION 7 — TEXTURE SYNC HUD UPDATER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function updateTexSyncHUD(isTexMode) {
+  const texFill = document.getElementById('sync-tex-fill');
+  const texNum  = document.getElementById('sync-tex-num');
+  const texDot  = document.getElementById('tex-dot');
+
+  if (texFill) {
+    texFill.style.width      = isTexMode ? '100%' : '20%';
+    texFill.style.background = isTexMode
+      ? 'linear-gradient(90deg, #00ff88, #00f0ff)'
+      : 'linear-gradient(90deg, #ff2244, #8b00ff)';
+  }
+
+  if (texNum) {
+    texNum.textContent = isTexMode ? 'LIVE' : 'GLSL';
+  }
+
+  if (texDot) {
+    texDot.style.background   = isTexMode ? '#00ff88' : '#8b00ff';
+    texDot.style.boxShadow    = isTexMode
+      ? '0 0 8px #00ff88'
+      : '0 0 8px #8b00ff';
   }
 }
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 5 — MASTER ANIMATION LOOP
-   Orchestrates all engines each frame.
+   SECTION 8 — MASTER ANIMATION LOOP
+   Orchestrates Audio → Sync → UI each frame.
+   Engine2D and Cube3D have independent RAF loops
+   for rendering. This loop handles coordination.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-let masterAnimId   = null;
-let masterPaused   = false;
+let masterAnimId    = null;
+let masterPaused    = false;
+let syncFrameCount  = 0;
 
-/* Throttle sync to every N frames for performance */
+/* Throttle sync computation to every 2nd frame */
 const SYNC_INTERVAL = 2;
-let   syncFrameCount = 0;
 
 /* Last computed sync data (reused on skipped frames) */
 let lastSyncData = {
@@ -540,17 +734,6 @@ let lastSyncData = {
   energy:      0.0
 };
 
-/**
- * masterLoop — the single RAF loop that
- * coordinates Engine2D, Cube3D, Audio, and Sync.
- *
- * Engine2D and Cube3D have their own internal RAF loops
- * for rendering. This loop only handles:
- *  - Audio updates
- *  - SyncController computation
- *  - UI metric updates
- *  - Performance monitoring
- */
 function masterLoop(timestamp) {
   masterAnimId = requestAnimationFrame(masterLoop);
 
@@ -558,30 +741,36 @@ function masterLoop(timestamp) {
 
   syncFrameCount++;
 
-  /* ── Audio Update (every frame for responsiveness) ── */
+  /* ── Performance Monitor ── */
+  const avgFPS = PerformanceMonitor.update(timestamp);
+
+  /* ── Audio Update (every frame) ── */
   AudioEngine.update();
   const mAudio = AudioEngine.getMetrics();
 
   /* ── Sync Computation (every SYNC_INTERVAL frames) ── */
   if (syncFrameCount % SYNC_INTERVAL === 0) {
 
-    const m2d      = Engine2D.getMetrics();
-    lastSyncData   = SyncController.tick(m2d, mAudio);
+    /* Read 2D metrics */
+    const m2d = Engine2D.getMetrics();
 
-    /* Push sync data to 3D engine */
+    /* Compute inversion sync */
+    lastSyncData = SyncController.tick(m2d, mAudio);
+
+    /* Push sync data to 3D cube */
     Cube3D.setSyncData(lastSyncData);
 
-    /* ── UI Metric Updates ── */
-    UI.updateSyncHUD(m2d, lastSyncData, mAudio);
-  }
+    /* Update UI sync displays */
+    if (window.UI) {
+      UI.updateSyncHUD(m2d, lastSyncData, mAudio);
+    }
 
-  /* ── Performance Monitor (every frame) ── */
-  PerformanceMonitor.update(timestamp);
+    /* Update texture sync HUD */
+    const texStatus = Cube3D.getTexSyncStatus();
+    updateTexSyncHUD(texStatus.mode === 'LIVE_TEXTURE');
+  }
 }
 
-/**
- * startMasterLoop — begin the master orchestration loop.
- */
 function startMasterLoop() {
   if (!masterAnimId) {
     masterAnimId = requestAnimationFrame(masterLoop);
@@ -589,9 +778,6 @@ function startMasterLoop() {
   }
 }
 
-/**
- * stopMasterLoop — halt the master loop.
- */
 function stopMasterLoop() {
   if (masterAnimId) {
     cancelAnimationFrame(masterAnimId);
@@ -601,22 +787,141 @@ function stopMasterLoop() {
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 6 — VISIBILITY API
-   Pause/resume when the browser tab is hidden.
-   Saves CPU, GPU, and battery on mobile.
+   SECTION 9 — KEYBOARD SHORTCUTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function setupKeyboard() {
+  document.addEventListener('keydown', e => {
+
+    /* Skip if typing in search */
+    if (e.target && e.target.id === 'preset-search') return;
+
+    switch (e.key) {
+
+      /* SPACE — shatter */
+      case ' ':
+        e.preventDefault();
+        Cube3D.triggerShatter();
+        if (window.UI) UI.triggerShatterVFX();
+        break;
+
+      /* R — randomize */
+      case 'r':
+      case 'R':
+        if (window.UI) UI.randomizeBoth();
+        SyncController.reset();
+        break;
+
+      /* P — POV mode */
+      case 'p':
+      case 'P': {
+        const btn = document.getElementById('btn-pov');
+        if (btn) btn.click();
+        break;
+      }
+
+      /* T — toggle texture mode */
+      case 't':
+      case 'T': {
+        const btn = document.getElementById('btn-tex-mode');
+        if (btn) btn.click();
+        break;
+      }
+
+      /* A — audio */
+      case 'a':
+      case 'A': {
+        const btn = document.getElementById('btn-audio');
+        if (btn) btn.click();
+        break;
+      }
+
+      /* F — fullscreen */
+      case 'f':
+      case 'F':
+        toggleFullscreen();
+        break;
+
+      /* L — language */
+      case 'l':
+      case 'L': {
+        const btn = document.getElementById('btn-lang');
+        if (btn) btn.click();
+        break;
+      }
+
+      /* ? — shortcuts overlay */
+      case '?':
+        toggleShortcutsOverlay(true);
+        break;
+
+      /* Escape — close overlays */
+      case 'Escape':
+        toggleShortcutsOverlay(false);
+        break;
+
+      /* Arrow keys — cycle presets */
+      case 'ArrowRight':
+        e.preventDefault();
+        cyclePreset('2d', +1);
+        break;
+
+      case 'ArrowLeft':
+        e.preventDefault();
+        cyclePreset('2d', -1);
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        cyclePreset('3d', +1);
+        break;
+
+      case 'ArrowDown':
+        e.preventDefault();
+        cyclePreset('3d', -1);
+        break;
+    }
+  });
+}
+
+function cyclePreset(engine, delta) {
+  if (!window.UI) return;
+  /* Delegate to UI which knows the current index */
+  UI.selectPresetRelative
+    ? UI.selectPresetRelative(engine, delta)
+    : UI.randomizeBoth();
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement
+            .requestFullscreen({ navigationUI: 'hide' })
+            .catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function toggleShortcutsOverlay(show) {
+  const overlay = document.getElementById('shortcuts-overlay');
+  if (overlay) overlay.classList.toggle('hidden', !show);
+}
+
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SECTION 10 — VISIBILITY API
+   Pause all engines when tab is hidden
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function setupVisibilityHandler() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      /* Tab hidden — pause all rendering */
       masterPaused = true;
       Engine2D.stop();
       Cube3D.stop();
-      console.info('[main] Tab hidden — engines paused.');
-
+      AudioEngine.stop();
+      console.info('[main] Tab hidden — all engines paused.');
     } else {
-      /* Tab visible again — resume */
       masterPaused = false;
       Engine2D.start();
       Cube3D.start();
@@ -627,54 +932,77 @@ function setupVisibilityHandler() {
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 7 — ORIENTATION HANDLER
-   Handles mobile device rotation gracefully.
+   SECTION 11 — ORIENTATION HANDLER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function setupOrientationHandler() {
+  const target = screen.orientation || window;
+  const event  = screen.orientation ? 'change' : 'orientationchange';
 
-  /* Modern API */
-  if (screen.orientation) {
-    screen.orientation.addEventListener('change', onOrientationChange);
-  } else {
-    /* Legacy fallback */
-    window.addEventListener('orientationchange', onOrientationChange);
-  }
-}
-
-function onOrientationChange() {
-  /* Small delay to let browser finish resize */
-  setTimeout(() => {
-    /* Engines handle their own resize via window resize listener.
-       We just reset particles to avoid orientation-change streaks. */
-    Engine2D.resetParticles();
-
-    UI.showToast(
-      document.documentElement.lang === 'ar'
-        ? 'تم تحديث التخطيط'
-        : 'Layout updated',
-      'info',
-      1500
-    );
-  }, 350);
+  target.addEventListener(event, () => {
+    setTimeout(() => {
+      Engine2D.resetParticles();
+      const isAr = document.getElementById('html-root').lang === 'ar';
+      if (window.UI) {
+        UI.showToast(
+          isAr ? 'تم تحديث التخطيط' : 'Layout updated',
+          'info', 1500
+        );
+      }
+    }, 350);
+  });
 }
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 8 — GLOBAL ERROR BOUNDARY
-   Catches unhandled errors and shows them in the UI
-   rather than silently breaking.
+   SECTION 12 — MOBILE SWIPE GESTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+function setupSwipeGesture() {
+  if (window.innerWidth > 768) return;
+
+  let startX = 0;
+  let startY = 0;
+
+  document.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    const dx   = e.changedTouches[0].clientX - startX;
+    const dy   = e.changedTouches[0].clientY - startY;
+    const isAr = document.getElementById('html-root').dir === 'rtl';
+
+    if (Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (Math.abs(dx) < 55) return;
+
+    const panel = document.getElementById('panel-presets');
+    if (!panel) return;
+
+    if (!isAr) {
+      if (dx > 0 && startX < 30)                panel.classList.add('open');
+      if (dx < 0 && panel.classList.contains('open'))
+                                                 panel.classList.remove('open');
+    } else {
+      if (dx < 0 && startX > window.innerWidth - 30)
+                                                 panel.classList.add('open');
+      if (dx > 0 && panel.classList.contains('open'))
+                                                 panel.classList.remove('open');
+    }
+  }, { passive: true });
+}
+
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SECTION 13 — ERROR BOUNDARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function setupErrorBoundary() {
-
   window.addEventListener('error', e => {
-    console.error('[Xhaos] Unhandled error:', e.message, e.filename, e.lineno);
-
-    /* Don't spam the UI — only show once per session */
-    if (!window._xhaosErrorShown) {
-      window._xhaosErrorShown = true;
-      /* Only show if UI is initialised */
+    console.error('[Xhaos] Error:', e.message, e.filename, e.lineno);
+    if (!window._xhaosErrShown) {
+      window._xhaosErrShown = true;
       if (window.UI && UI.showToast) {
         UI.showToast('Engine error — see console (F12)', 'error', 5000);
       }
@@ -688,132 +1016,93 @@ function setupErrorBoundary() {
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 9 — MOBILE SWIPE PANEL GESTURE
-   Swipe right from left edge → open panel
-   Swipe left from panel → close panel
+   SECTION 14 — CAPABILITY LOGGER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-function setupSwipeGesture() {
-  if (window.innerWidth > 768) return; // desktop only uses click
+function logCapabilities() {
+  const testCanvas = document.createElement('canvas');
+  const gl = testCanvas.getContext('webgl2') ||
+             testCanvas.getContext('webgl');
 
-  let touchStartX = 0;
-  let touchStartY = 0;
+  console.info('[GeoZakhraf v2.0] Capabilities:', {
+    webGL:       gl
+                   ? (gl instanceof WebGL2RenderingContext
+                      ? 'WebGL 2' : 'WebGL 1')
+                   : 'NONE',
+    renderer:    gl ? gl.getParameter(gl.RENDERER) : 'N/A',
+    pixelRatio:  window.devicePixelRatio,
+    screenSize:  `${window.innerWidth}×${window.innerHeight}`,
+    audioAPI:    AudioEngine.isSupported()
+                   ? 'Supported' : 'Not supported',
+    touch:       navigator.maxTouchPoints > 0,
+    language:    navigator.language,
+    integration: 'canvas2d → CanvasTexture → MeshBasicMaterial → Bloom'
+  });
 
-  document.addEventListener('touchstart', e => {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-  }, { passive: true });
-
-  document.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    const dy = e.changedTouches[0].clientY - touchStartY;
-
-    /* Only register horizontal swipes */
-    if (Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (Math.abs(dx) < 55) return; // minimum swipe distance
-
-    const panel = document.getElementById('panel-presets');
-    if (!panel) return;
-
-    const isRTL = document.documentElement.dir === 'rtl';
-
-    if (!isRTL) {
-      /* LTR: swipe right from left edge → open */
-      if (dx > 0 && touchStartX < 30) {
-        panel.classList.add('open');
-      }
-      /* LTR: swipe left → close */
-      if (dx < 0 && panel.classList.contains('open')) {
-        panel.classList.remove('open');
-      }
-    } else {
-      /* RTL: swipe left from right edge → open */
-      if (dx < 0 && touchStartX > window.innerWidth - 30) {
-        panel.classList.add('open');
-      }
-      /* RTL: swipe right → close */
-      if (dx > 0 && panel.classList.contains('open')) {
-        panel.classList.remove('open');
-      }
-    }
-  }, { passive: true });
+  if (!gl) {
+    console.error('[main] WebGL not available. 3D engine will fail.');
+  }
 }
 
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 10 — BOOT SEQUENCE
-   Ordered startup: loader → engines → UI → loops
+   SECTION 15 — BOOT SEQUENCE
+   Ordered startup ensuring correct integration
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 window.addEventListener('DOMContentLoaded', async () => {
 
-  console.info('═══════════════════════════════════════');
-  console.info('  GeoZakhraf Xhaos Engine v2.0');
-  console.info('  Mathematical Generative Art Platform');
-  console.info('  60 Formulas · Inversion Sync Active');
-  console.info('═══════════════════════════════════════');
+  /* Boot banner */
+  console.info('╔═══════════════════════════════════════════╗');
+  console.info('║   GeoZakhraf Xhaos Engine v2.0            ║');
+  console.info('║   Live 2D → 3D Texture Integration        ║');
+  console.info('║   60 Formulas · Inversion Symmetry        ║');
+  console.info('║   canvas2d → CanvasTexture → Cube Skin    ║');
+  console.info('╚═══════════════════════════════════════════╝');
 
-  /* ── Step 1: Error boundary (first, always) ── */
+  /* Step 1 — Error boundary first */
   setupErrorBoundary();
 
-  /* ── Step 2: Run loading sequence ── */
+  /* Step 2 — Run loader animation */
   await runLoader();
 
-  /* ── Step 3: Show app shell ── */
+  /* Step 3 — Show app shell */
   const app = document.getElementById('app');
   if (app) app.classList.remove('hidden');
 
-  /* ── Step 4: Initialise all engines & UI ── */
+  /* Step 4 — Log capabilities */
+  logCapabilities();
+
+  /* Step 5 — Init engines in correct order:
+     Engine2D → Cube3D (needs canvas2d ready) → UI */
   initEngines();
 
-  /* ── Step 5: Start master orchestration loop ── */
+  /* Step 6 — Start master sync loop */
   startMasterLoop();
 
-  /* ── Step 6: Setup auxiliary systems ── */
+  /* Step 7 — Auxiliary systems */
+  setupKeyboard();
   setupVisibilityHandler();
   setupOrientationHandler();
   setupSwipeGesture();
 
-  /* ── Step 7: Log capability info ── */
-  logCapabilities();
+  /* Step 8 — Initial texture sync HUD state */
+  updateTexSyncHUD(true);
 
-  console.info('[main] Boot sequence complete. All systems nominal.');
+  /* Step 9 — Welcome message */
+  setTimeout(() => {
+    const isAr = document.getElementById('html-root').lang === 'ar';
+    if (window.UI) {
+      UI.showToast(
+        isAr
+          ? 'المكعب يرتدي الحقل الرياضي — تكامل مباشر'
+          : 'Cube wears the 2D field — live integration active',
+        'info',
+        3500
+      );
+    }
+  }, 800);
+
+  console.info('[main] Boot complete. Integration active.');
+
 });
-
-
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   SECTION 11 — CAPABILITY LOGGER
-   Logs device/browser capabilities to console
-   for debugging on different devices.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-
-function logCapabilities() {
-  const gl = document.createElement('canvas')
-                      .getContext('webgl2') ||
-             document.createElement('canvas')
-                      .getContext('webgl');
-
-  const caps = {
-    webGL:       gl ? (gl instanceof WebGL2RenderingContext
-                       ? 'WebGL 2' : 'WebGL 1') : 'NONE',
-    renderer:    gl ? gl.getParameter(gl.RENDERER) : 'N/A',
-    pixelRatio:  window.devicePixelRatio,
-    screenSize:  `${window.innerWidth}×${window.innerHeight}`,
-    audioAPI:    AudioEngine.isSupported() ? 'Supported' : 'Not supported',
-    touchScreen: navigator.maxTouchPoints > 0,
-    language:    navigator.language,
-    platform:    navigator.platform || 'unknown'
-  };
-
-  console.info('[Capabilities]', caps);
-
-  /* Warn if WebGL 1 only */
-  if (caps.webGL === 'WebGL 1') {
-    console.warn('[main] WebGL 2 not available. Some effects may be limited.');
-  }
-
-  /* Warn if audio not supported */
-  if (caps.audioAPI === 'Not supported') {
-    console.warn('[main] Web Audio API not supported. Audio reactivity disabled.');
-  }
-}
