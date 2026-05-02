@@ -1,1204 +1,941 @@
 /**
- * Xoretex Xhaos Cube — cube3d.js
- * FINAL VERSION with:
- * - Pinch to resize
- * - Smooth finger rotation
- * - Fast-flick shatter
- * - Better visuals
- * - Fight mode sync with 2D
- * - POV inside cube (first person look around)
+ * ═══════════════════════════════════════════════════
+ *  GeoZakhraf Xhaos Engine — cube3d.js
+ *  Three.js 3D Xhaos Cube
+ *  ShaderMaterial faces · InstancedMesh internals
+ *  Post-Processing: Bloom · Chromatic Aberration · Grain
+ *  Voronoi Shatter System · POV Mode
+ * ═══════════════════════════════════════════════════
  */
 
 'use strict';
 
-(function waitForThree() {
-  if (typeof THREE !== 'undefined') {
-    try { startCubeEngine(); }
-    catch (err) { showCubeError('Cube init: ' + err.message); console.error(err); }
-  } else {
-    if (!window._t3r) window._t3r = 0;
-    window._t3r++;
-    if (window._t3r > 50) {
-      showCubeError('Three.js not loaded');
-      window.setCubeVisible = function(){};
-      window.nextCubePattern = function(){};
-      return;
+window.Cube3D = (function () {
+
+  /* ─── Private State ─── */
+  let renderer, scene, camera, composer;
+  let bloomPass;
+  let cubeGroup, faceShards = [];
+  let instanceMesh;
+  let animId     = null;
+  let clock       = new THREE.Clock();
+  let params      = { speed: 1, scale: 1, chaos: 0.5, bloom: 1.2,
+                      rotation: 0.3, presetIndex: 0 };
+  let povMode     = false;
+  let shattered   = false;
+  let shatterTime = 0;
+
+  /* ─── Sync values injected by SyncController ─── */
+  let syncData = { rotationDir: 1, scaleMult: 1 };
+
+  /* ══════════════════════════════════════════════
+     GLSL SHADERS
+  ══════════════════════════════════════════════ */
+
+  const VERT_SHADER = /* glsl */`
+    varying vec2 vUv;
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    void main() {
+      vUv      = uv;
+      vNormal  = normalize(normalMatrix * normal);
+      vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-    setTimeout(waitForThree, 200);
-  }
-})();
+  `;
 
-function showCubeError(msg) {
-  var el = document.getElementById('errorOverlay');
-  if (el) { el.style.display = 'block'; el.innerHTML += '<div><b>⚠ 3D:</b> ' + msg + '</div>'; }
-}
+  /**
+   * Fragment shader encoding all 60 formula modes.
+   * Mode selection via uniform int uMode.
+   */
+  const FRAG_SHADER = /* glsl */`
+    precision highp float;
 
-function startCubeEngine() {
+    uniform float uTime;
+    uniform float uScale;
+    uniform float uChaos;
+    uniform int   uMode;
+    varying vec2  vUv;
+    varying vec3  vNormal;
+    varying vec3  vWorldPos;
 
-  var FS = 256;
-  var W = window.innerWidth, H = window.innerHeight;
+    #define PI    3.14159265358979
+    #define TAU   6.28318530717959
 
-  // ============================================================
-  // STATE
-  // ============================================================
-  var S = {
-    scene: null, camera: null, renderer: null,
-    cube: null, cubeGroup: null, edges: null, shell: null, shellMat: null,
-    reflCube: null, reflFloor: null, floorGrid: null,
-    materials: [], refMats: [],
-    faceCanvases: [], faceCtxs: [], faceTextures: [],
-    lights: null, shards: [],
-    // patterns
-    patIdx: 0, patTarget: 0, morphProg: 1.0,
-    autoSpin: true, zenOrbit: false,
-    autoPat: false, autoInt: 8, autoTmr: 0,
-    // rotation
-    rotX: 0.25, rotY: 0.4, rotVX: 0, rotVY: 0.003,
-    dragging: false, flickX: 0, flickY: 0,
-    zenAngle: 0,
-    // shatter
-    shattered: false,
-    // appearance
-    edgeGlow: 0.8, emissive: 0.4, reflection: true, showGrid: false,
-    visible: true,
-    // cube scale (pinch)
-    cubeScale: 1.0, targetScale: 1.0,
-    // POV mode
-    povMode: false, povYaw: 0, povPitch: 0,
-    // fight mode
-    fightMode: false, fightHP: 100, fightHits: [],
-    // time
-    time: 0, lastTime: performance.now(),
+    /* ── Hash & Noise ── */
+    float hash(vec2 p) {
+      p = fract(p * vec2(127.1, 311.7));
+      p += dot(p, p + 19.19);
+      return fract(p.x * p.y);
+    }
+
+    float noise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      vec2 u = f*f*(3.0-2.0*f);
+      return mix(mix(hash(i+vec2(0,0)), hash(i+vec2(1,0)), u.x),
+                 mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y) * 2.0 - 1.0;
+    }
+
+    float fBm(vec2 p, int oct) {
+      float v=0.0, a=0.5;
+      for(int i=0;i<8;i++){
+        if(i>=oct) break;
+        v += a * noise(p); p *= 2.0; a *= 0.5;
+      }
+      return v;
+    }
+
+    float turb(vec2 p, int oct) {
+      float v=0.0, a=0.5;
+      for(int i=0;i<8;i++){
+        if(i>=oct) break;
+        v += a * abs(noise(p)); p *= 2.0; a *= 0.5;
+      }
+      return v;
+    }
+
+    vec2 warp(vec2 p, float t, int iters) {
+      for(int i=0;i<6;i++){
+        if(i>=iters) break;
+        float nx = noise(p + vec2(0.3*t, 1.7));
+        float ny = noise(p + vec2(3.1+0.2*t, 2.3));
+        p += 0.8*vec2(nx, ny);
+      }
+      return p;
+    }
+
+    /* ── Colour Mapping ── */
+    vec3 cybColor(float v) {
+      v = fract(v * 0.5 + 0.5);
+      vec3 a = vec3(0.0, 1.0, 1.0);   // cyan
+      vec3 b = vec3(0.545, 0.0, 1.0); // violet
+      vec3 c = vec3(1.0, 0.843, 0.0); // gold
+      if(v < 0.33) return mix(a, b, v/0.33);
+      if(v < 0.66) return mix(b, c, (v-0.33)/0.33);
+      return mix(c, a, (v-0.66)/0.34);
+    }
+
+    /* ── Formula Dispatcher ── */
+    float formula(vec2 uv, float t, float s) {
+      float x = uv.x * s;
+      float y = uv.y * s;
+      vec2  p = vec2(x, y);
+
+      if(uMode == 0) { // 01 Fiber Optics
+        return (sin(0.3*x+t) + cos(0.3*y+t))*2.2 + fBm(0.3*p, 4)*3.0;
+      }
+      if(uMode == 1) { // 02 Digital Silk
+        vec2 w = warp(0.4*p, t, 2);
+        return sin(w.x+0.7*t)*cos(w.y-0.5*t)*4.0;
+      }
+      if(uMode == 2) { // 03 Wave Turbulence
+        float tb = turb(0.2*p, 5);
+        return (sin(0.3*(x+y)+t+tb*4.0) - cos(0.3*(x-y)-t)) * 2.5;
+      }
+      if(uMode == 3) { // 04 Dynamic Vortex
+        float r    = length(uv - 0.5);
+        float pull = sin(0.8*s*r - t)*0.5;
+        return atan(uv.y-0.5, uv.x-0.5) + 0.6*t + pull;
+      }
+      if(uMode == 4) { // 05 Neural Grid
+        float gx = floor(x/4.0), gy = floor(y/4.0);
+        float cell = noise(vec2(0.5*gx, 0.5*gy+0.3*t));
+        return (gx+gy)*0.5*cell + 0.1*t + sin(cell*TAU)*2.0;
+      }
+      if(uMode == 5) { // 06 Data Blocks
+        float bx = round(x/7.0), by = round(y/7.0);
+        float nn = noise(vec2(bx+0.2*t, by));
+        return (bx+by)*0.22 + sin(t+nn*8.0) + cos(nn*PI)*2.0;
+      }
+      if(uMode == 6) { // 07 Sand Waves
+        float nn = fBm(0.3*p+vec2(0.2*t,0.0), 6);
+        return sin(0.5*(x+y)+t+nn*5.0) + cos(0.5*(x-y)-t+nn*3.0);
+      }
+      if(uMode == 7) { // 08 Galactic River
+        vec2 w = warp(0.2*p, t, 4);
+        float tb = turb(0.1*p, 3);
+        return sin(w.x+t)*cos(w.y+t)*5.0 + tb*3.0;
+      }
+      if(uMode == 8) { // 09 Radial Drift
+        float r = length(uv-0.5)*s;
+        return sin(0.02*r+t)*2.2 + 0.35*cos(0.4*y-0.5*t);
+      }
+      if(uMode == 9) { // 10 Geometric Repeat
+        float nn = noise(0.5*p+vec2(0.0, 0.1*t));
+        return sin(0.9*x+sin(0.6*y+t)) + cos(0.9*y+cos(0.6*x+t)) + nn*2.0;
+      }
+      if(uMode == 10) { // 11 Magnetic Field
+        float sum = 0.0;
+        vec2 poles[4];
+        poles[0]=vec2(0.25,0.5); poles[1]=vec2(0.75,0.5);
+        poles[2]=vec2(0.5,0.25); poles[3]=vec2(0.5,0.75);
+        float signs[4]; signs[0]=1.;signs[1]=-1.;signs[2]=1.;signs[3]=-1.;
+        for(int i=0;i<4;i++) sum += atan(uv.y-poles[i].y, uv.x-poles[i].x)*signs[i];
+        return sum/4.0 + 0.3*sin(t);
+      }
+      if(uMode == 11) { // 12 Ordered Chaos
+        float nn = turb(0.3*p+vec2(0.1*t,0.0), 6);
+        return sin(0.3*x)*cos(0.3*y)*TAU + sin(t) + nn*4.0;
+      }
+      if(uMode == 12) { // 13 Fractal Spiral
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return log(r+1.0)*0.5*s + th + 0.4*t + fBm(vec2(2.0*th, 0.005*r), 4)*3.0;
+      }
+      if(uMode == 13) { // 14 Electric Storm
+        float n1 = noise(0.5*p+vec2(t,0.0));
+        float n2 = noise(p-vec2(0.0,0.5*t));
+        float bolt = sin(n1*20.0)*cos(n2*15.0);
+        return bolt*3.0 + atan(uv.y-0.5, uv.x-0.5)*0.2;
+      }
+      if(uMode == 14) { // 15 DNA Helix
+        float wave = sin(y+2.0*t)*0.15;
+        return atan(sin(2.0*y+t), (uv.x-0.5-wave)*0.05) + cos(0.8*y+t)*2.0;
+      }
+      if(uMode == 15) { // 16 Coral Growth
+        vec2 w = warp(0.3*p, 0.3*t, 6);
+        return fBm(w, 6)*8.0 + sin(0.5*t)*2.0;
+      }
+      if(uMode == 16) { // 17 Quantum Field
+        float n1 = noise(0.8*p+vec2(0.3*t,0.0));
+        float n2 = noise(0.4*p+vec2(0.0,0.2*t));
+        float intf = sin(n1*12.0+n2*8.0+t);
+        return intf*2.0 + sin(0.6*x)*cos(0.6*y)*3.0;
+      }
+      if(uMode == 17) { // 18 Topographic
+        float H_val = fBm(0.2*p+vec2(0.05*t,0.0), 8);
+        float cnt = sin(30.0*H_val)*0.5;
+        float gx2 = fBm(0.2*(p+vec2(0.01,0.0))+vec2(0.05*t,0.0),8)-H_val;
+        float gy2 = fBm(0.2*(p+vec2(0.0,0.01))+vec2(0.05*t,0.0),8)-H_val;
+        return atan(gy2, gx2)+cnt;
+      }
+      if(uMode == 18) { // 19 Mirror Flow
+        vec2 mp = abs(uv-0.5)*s;
+        return fBm(0.5*mp+vec2(0.2*t,0.0),4)*6.0 + 0.8*sin(x-0.8*y+t);
+      }
+      if(uMode == 19) { // 20 Smoke
+        vec2 w1 = warp(0.2*p, 0.5*t, 3);
+        vec2 w2 = warp(w1, 0.3*t, 2);
+        float rise = -0.5+(1.0-uv.y)*0.8;
+        return fBm(w2,5)*6.0+rise*2.0+1.5*PI;
+      }
+      if(uMode == 20) { // 21 Crystal Lattice
+        float ax = sin(x*4.0+t)*cos(y*3.0);
+        float ay = cos(x*3.0-t)*sin(y*4.0);
+        float nn = noise(p+vec2(0.1*t,0.0))*2.0;
+        return atan(ay+nn, ax+nn);
+      }
+      if(uMode == 21) { // 22 Nebula
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        vec2 w = warp(0.1*p, 0.2*t, 5);
+        return fBm(vec2(3.0*th+0.1*t, 0.5*r), 6)*5.0 + sin(3.0*(w.x+w.y))*2.0+0.3*th;
+      }
+      if(uMode == 22) { // 23 Woven Fabric
+        float wx2 = sin(2.0*x+t)*2.0;
+        float wy2 = cos(2.0*y-0.7*t)*2.0;
+        float nn = noise(0.3*p+vec2(0.0,0.1*t));
+        return atan(sin(y+wx2), cos(x+wy2))+nn*2.0;
+      }
+      if(uMode == 23) { // 24 Black Hole
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        float pull = 1.0/(0.03*r+0.1);
+        return th+pull*2.0+0.3*t+sin(0.1*r-2.0*t)*0.5;
+      }
+      if(uMode == 24) { // 25 Aurora
+        float fy = uv.y;
+        float curt = sin(0.5*x+t+sin(8.0*fy+t)*2.0)*3.0;
+        return curt + fBm(0.1*p+vec2(0.1*t,0.0),5)*4.0 - PI/2.0;
+      }
+      if(uMode == 25) { // 26 Voronoi Flow
+        vec2 seeds[8];
+        for(int i=0;i<8;i++){
+          float a = TAU*float(i)/8.0+t*0.3;
+          seeds[i] = vec2(0.5+0.4*cos(a), 0.5+0.4*sin(a));
+        }
+        float minD = 99.0; vec2 np = vec2(0.0);
+        for(int i=0;i<8;i++){
+          float d = length(uv-seeds[i]);
+          if(d<minD){minD=d; np=seeds[i];}
+        }
+        return atan(0.5-np.y, 0.5-np.x)+0.3*sin(0.5*t);
+      }
+      if(uMode == 26) { // 27 Interference Rings
+        vec2 srcs[3];
+        srcs[0]=vec2(0.3,0.5); srcs[1]=vec2(0.7,0.5); srcs[2]=vec2(0.5,0.3);
+        float sum2=0.0;
+        for(int i=0;i<3;i++){
+          float d2=length(uv-srcs[i])*s;
+          sum2+=sin(0.2*d2-t*(1.0+0.3*float(i)));
+        }
+        return sum2;
+      }
+      if(uMode == 27) { // 28 Tornado
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        float yN = uv.y;
+        float width2=(1.0-yN)*0.3+0.05;
+        float spin=3.0/(r/s+0.1)*width2;
+        float tb2=turb(vec2(2.0*th,5.0*yN+t),4);
+        return th+spin+0.5*t+tb2*2.0;
+      }
+      if(uMode == 28) { // 29 Neural Network
+        float sum3=0.0;
+        for(int i=0;i<6;i++){
+          float a = TAU*float(i)/6.0+0.4*t;
+          vec2 n2=vec2(0.5+0.35*cos(a),0.5+0.35*sin(a));
+          float d3=length(uv-n2)*s;
+          sum3+=sin(0.1*d3+t+float(i))*exp(-0.05*d3);
+        }
+        return sum3*3.0;
+      }
+      if(uMode == 29) { // 30 Galaxy Arm
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        float spiral = th-0.6*log(r+1.0);
+        float arm = sin(spiral*2.0+0.3*t)*0.5;
+        return th+arm+fBm(vec2(th*s,0.003*r+0.05*t),4)*2.0+PI/2.0;
+      }
+      if(uMode == 30) { // 31 Liquid Marble
+        return sin(6.0*fBm(0.4*p+vec2(t,-t),4))+cos(4.0*fBm(0.6*p+vec2(0.0,t),3));
+      }
+      if(uMode == 31) { // 32 Solar Flare
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return th+4.0*sin(0.03*r-2.0*t)+2.0*noise(p+vec2(t,0.0));
+      }
+      if(uMode == 32) { // 33 Frozen Veins
+        float nn = noise(p);
+        float dx2 = noise(p+vec2(0.01,0.0))-nn;
+        float dy2 = noise(p+vec2(0.0,0.01))-nn;
+        return atan(dy2,dx2)+0.4*sin(18.0*nn);
+      }
+      if(uMode == 33) { // 34 Velvet Fold
+        return sin(0.4*x+3.0*fBm(vec2(0.3*y,0.3*x+t),4))*cos(0.4*y-t);
+      }
+      if(uMode == 34) { // 35 Band Current
+        return sin(1.2*x+t)+0.7*cos(1.8*y-0.6*t)+0.4*sin(x-y);
+      }
+      if(uMode == 35) { // 36 Sonic Ripples
+        float r = length(uv-0.5)*s;
+        return sin(0.03*r-3.0*t)+0.5*sin(0.05*r+2.0*t);
+      }
+      if(uMode == 36) { // 37 Plasma Mesh
+        return sin(x+t)+sin(y-t)+sin(x+y+0.5*t);
+      }
+      if(uMode == 37) { // 38 Marble Vein
+        return sin(x+5.0*fBm(0.6*p+vec2(0.0,t),5));
+      }
+      if(uMode == 38) { // 39 Hyper Tunnel
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return th+8.0/(r+1.0)+sin(0.05*r-2.0*t);
+      }
+      if(uMode == 39) { // 40 Biofilm
+        vec2 w = warp(0.4*p, t, 3);
+        return fBm(w,5)*6.0+0.8*sin(0.2*t);
+      }
+      if(uMode == 40) { // 41 Grid Stream
+        float gx = floor(x/6.0), gy = floor(y/6.0);
+        return noise(vec2(0.4*gx+0.1*t, 0.4*gy))*TAU+0.3*sin(gx+gy+t);
+      }
+      if(uMode == 41) { // 42 Cloud Chamber
+        float fb = fBm(0.3*p+vec2(0.05*t,0.0),6);
+        float gx2 = fBm(0.3*(p+vec2(0.01,0.0))+vec2(0.05*t,0.0),6)-fb;
+        float gy2 = fBm(0.3*(p+vec2(0.0,0.01))+vec2(0.05*t,0.0),6)-fb;
+        return atan(gy2,gx2)+0.6*sin(x+y+t);
+      }
+      if(uMode == 42) { // 43 Ink Diffusion
+        vec2 w = warp(0.2*p, 0.2*t, 4);
+        return fBm(w,6)+0.3*sin(t);
+      }
+      if(uMode == 43) { // 44 Luminous Web
+        float sum4=0.0;
+        for(int i=0;i<8;i++){
+          float a=TAU*float(i)/8.0+0.1*t;
+          vec2 an=vec2(0.5+0.4*cos(a),0.5+0.4*sin(a));
+          float d4=length(uv-an);
+          sum4+=atan(uv.y-an.y, uv.x-an.x)/(d4*10.0+1.0);
+        }
+        return sum4;
+      }
+      if(uMode == 44) { // 45 Harmonic Tiles
+        float fx = x/8.0+t, fy = y/8.0-t;
+        return sin(TAU*fract(fx))+cos(TAU*fract(fy));
+      }
+      if(uMode == 45) { // 46 Spiral Garden
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return th+0.4*r+sin(5.0*th-t);
+      }
+      if(uMode == 46) { // 47 Mercury Flow
+        return sin(0.5*x+4.0*noise(0.6*p+vec2(t,0.0)))+
+               cos(0.5*y-4.0*noise(0.6*p.yx-vec2(0.0,t)));
+      }
+      if(uMode == 47) { // 48 Prism Wave
+        return sin(0.8*x+t)*sin(0.8*y-t)+cos(1.2*(x-y));
+      }
+      if(uMode == 48) { // 49 Orbit Net
+        float sum5=0.0;
+        for(int i=0;i<5;i++){
+          float a=TAU*float(i)/5.0+t*0.25;
+          vec2 o=vec2(0.5+0.3*cos(a),0.5+0.3*sin(a));
+          float d5=length(uv-o)*s;
+          sum5+=atan(uv.y-o.y,uv.x-o.x)+0.2*sin(0.02*d5-t);
+        }
+        return sum5;
+      }
+      if(uMode == 49) { // 50 Ember Drift
+        return fBm(0.4*p+vec2(0.1*t,0.0),4)*5.0+0.7*(1.0-uv.y);
+      }
+      if(uMode == 50) { // 51 Glass Refraction
+        return atan(sin(2.0*x+3.0*noise(p+vec2(0.0,t))),
+                    cos(2.0*y-3.0*noise(p.yx-vec2(0.0,t))));
+      }
+      if(uMode == 51) { // 52 Ocean Current
+        return fBm(0.2*p+vec2(0.05*t,-0.03*t),5)*4.0+0.4*sin(0.6*y+t);
+      }
+      if(uMode == 52) { // 53 Silk Bloom
+        return sin(0.3*x+t)*cos(0.3*y-t)+fBm(0.5*p+vec2(0.0,t),3)*2.0;
+      }
+      if(uMode == 53) { // 54 Flux Rings
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return sin(0.04*r-t)*cos(6.0*th+0.5*t);
+      }
+      if(uMode == 54) { // 55 Industrial Flow
+        return atan(sin(2.0*x+2.0*noise(p+vec2(0.0,t))),
+                    cos(2.0*y-2.0*noise(p.yx-vec2(0.0,t))));
+      }
+      if(uMode == 55) { // 56 Star Nursery
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return fBm(0.2*p+vec2(0.0,0.04*t),5)*6.0+sin(0.02*r+th-t);
+      }
+      if(uMode == 56) { // 57 Wave Lattice
+        return sin(x+t)+cos(y-t)+sin(x-y);
+      }
+      if(uMode == 57) { // 58 Moiré Pulse
+        return sin(3.0*x+t)+sin(3.1*y-0.8*t);
+      }
+      if(uMode == 58) { // 59 Orbital Current
+        float r = length(uv-0.5)*s;
+        float th = atan(uv.y-0.5, uv.x-0.5);
+        return th+0.6*sin(0.025*r-t)+0.25*noise(p+vec2(0.0,0.1*t));
+      }
+      // 60 Phantom Field (default)
+      vec2 w = warp(0.3*p, 0.15*t, 4);
+      return fBm(w,6)*7.0+atan(uv.y-0.5, uv.x-0.5)*0.2;
+    }
+
+    void main() {
+      float t = uTime;
+      float s = uScale * 10.0;
+      float f = formula(vUv, t, s);
+
+      /* Normalise formula output → colour */
+      float v = f / (PI * 2.0);
+      vec3 col = cybColor(v);
+
+      /* Edge fresnel glow */
+      float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0,0.0,1.0))), 2.0);
+      col += vec3(0.0, 0.9, 1.0) * fresnel * 0.6;
+
+      /* Scan-line effect */
+      float scan = 0.5 + 0.5*sin(vUv.y * 400.0 + t * 3.0);
+      col *= 0.92 + 0.08 * scan;
+
+      /* Grid overlay */
+      vec2 grid = abs(fract(vUv * 20.0) - 0.5);
+      float gLine = 1.0 - smoothstep(0.0, 0.04, min(grid.x, grid.y));
+      col = mix(col, col * 1.6 + vec3(0.0,0.5,0.8)*0.3, gLine * 0.25);
+
+      /* Chaos noise speckle */
+      float speck = noise(vUv * 80.0 + t);
+      col += speck * uChaos * 0.08;
+
+      gl_FragColor = vec4(col, 0.95);
+    }
+  `;
+
+  /* ══════════════════════════════════════════════
+     CHROMATIC ABERRATION SHADER
+  ══════════════════════════════════════════════ */
+  const ChromaShader = {
+    uniforms: {
+      tDiffuse: { value: null },
+      uOffset:  { value: 0.003 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float uOffset;
+      varying vec2 vUv;
+      void main() {
+        float r = texture2D(tDiffuse, vUv + vec2( uOffset, 0.0)).r;
+        float g = texture2D(tDiffuse, vUv).g;
+        float b = texture2D(tDiffuse, vUv - vec2( uOffset, 0.0)).b;
+        gl_FragColor = vec4(r, g, b, 1.0);
+      }
+    `
   };
 
-  // ============================================================
-  // 60 PATTERN NAMES
-  // ============================================================
-  var PNAMES = [
-    'Fiber Optics','Digital Silk','Wave Turbulence','Dynamic Vortex','Neural Grid',
-    'Data Blocks','Sand Waves','Galactic River','Radial Drift','Geometric Repeat',
-    'Magnetic Field','Ordered Chaos','Fractal Spiral','Electric Storm','DNA Helix',
-    'Coral Growth','Quantum Field','Topographic Map','Mirror Flow','Smoke Simulation',
-    'Crystal Lattice','Nebula','Woven Fabric','Black Hole','Aurora Borealis',
-    'Voronoi Flow','Interference Rings','Tornado','Neural Network','Galaxy Arm',
-    'Liquid Marble','Solar Flare','Frozen Veins','Velvet Fold','Band Current',
-    'Sonic Ripples','Plasma Mesh','Marble Vein','Hyper Tunnel','Biofilm Drift',
-    'Grid Stream','Cloud Chamber','Ink Diffusion','Luminous Web','Harmonic Tiles',
-    'Spiral Garden','Mercury Flow','Prism Wave','Orbit Net','Ember Drift',
-    'Glass Refraction','Ocean Current','Silk Bloom','Flux Rings','Industrial Flow',
-    'Star Nursery','Wave Lattice','Moire Pulse','Orbital Current','Phantom Field',
-  ];
+  /* ══════════════════════════════════════════════
+     FILM GRAIN SHADER
+  ══════════════════════════════════════════════ */
+  const GrainShader = {
+    uniforms: {
+      tDiffuse: { value: null },
+      uTime:    { value: 0 },
+      uAmount:  { value: 0.04 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float uTime;
+      uniform float uAmount;
+      varying vec2 vUv;
+      float rand(vec2 co){
+        return fract(sin(dot(co, vec2(12.9898,78.233)))*43758.5453123);
+      }
+      void main() {
+        vec4 col = texture2D(tDiffuse, vUv);
+        float grain = rand(vUv + uTime * 0.01) * 2.0 - 1.0;
+        col.rgb += grain * uAmount;
+        gl_FragColor = col;
+      }
+    `
+  };
 
-  // ============================================================
-  // 60 PATTERN FUNCTIONS
-  // ============================================================
-  function hsl(h,s,l,a) {
-    h = ((h%360)+360)%360;
-    return a !== undefined ? 'hsla('+h+','+s+'%,'+l+'%,'+a+')' : 'hsl('+h+','+s+'%,'+l+'%)';
+  /* ══════════════════════════════════════════════
+     SCENE SETUP
+  ══════════════════════════════════════════════ */
+
+  function init(canvasEl) {
+    /* Renderer */
+    renderer = new THREE.WebGLRenderer({
+      canvas:    canvasEl,
+      antialias: true,
+      alpha:     true
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping    = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+
+    /* Scene */
+    scene = new THREE.Scene();
+
+    /* Camera */
+    camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 4.5);
+
+    /* Lighting (for shard reflections) */
+    const ambient = new THREE.AmbientLight(0x001020, 0.5);
+    scene.add(ambient);
+
+    const point1 = new THREE.PointLight(0x00f0ff, 2.5, 20);
+    point1.position.set(4, 4, 6);
+    scene.add(point1);
+
+    const point2 = new THREE.PointLight(0x8b00ff, 2.0, 20);
+    point2.position.set(-4, -3, 5);
+    scene.add(point2);
+
+    /* Build cube */
+    buildCube();
+
+    /* Internal InstancedMesh particles */
+    buildInternalParticles();
+
+    /* Post-processing */
+    buildPostProcessing();
+
+    /* Resize */
+    window.addEventListener('resize', onResize);
+
+    /* Touch / mouse */
+    setupInteraction(canvasEl);
   }
 
-  function makePatterns() {
-    var P = [];
-
-    // 0 Fiber Optics
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000814';c.fillRect(0,0,s,s);
-      for(var i=0;i<22;i++){var y0=i/22*s,amp=28+Math.sin(t*0.7+i)*18;
-        c.beginPath();c.strokeStyle=hsl(150+i*9,100,55+Math.sin(t+i)*15);c.lineWidth=2;
-        c.shadowColor=c.strokeStyle;c.shadowBlur=8;
-        for(var x=0;x<=s;x+=2){var py=y0+Math.sin(x*(0.018+i*0.001)+t+i)*amp;x===0?c.moveTo(x,py):c.lineTo(x,py);}
-        c.stroke();}c.shadowBlur=0;
-    });
-
-    // 1 Digital Silk
-    P.push(function(c,s,t,f){
-      c.fillStyle='#020012';c.fillRect(0,0,s,s);
-      for(var i=0;i<s;i+=3){var v=Math.sin(i*0.025+t)*0.5+0.5;
-        c.fillStyle='rgba(0,'+Math.floor(v*255)+','+Math.floor((1-v)*220)+',0.7)';c.fillRect(i,0,2,s);}
-      for(var j=0;j<s;j+=3){var v2=Math.cos(j*0.025+t*1.3)*0.5+0.5;
-        c.fillStyle='rgba('+Math.floor(v2*200)+',0,'+Math.floor(v2*255)+',0.35)';c.fillRect(0,j,s,2);}
-    });
-
-    // 2 Wave Turbulence
-    P.push(function(c,s,t,f){
-      var img=c.getImageData(0,0,s,s),d=img.data;
-      for(var y=0;y<s;y+=2)for(var x=0;x<s;x+=2){
-        var v=Math.sin(x/s*6+t)*Math.cos(y/s*6+t*0.7)+Math.sin((x/s+y/s)*4.5+t*0.5)*0.5;
-        var cl=Math.floor((v*0.5+0.5)*255);
-        for(var dy=0;dy<2&&y+dy<s;dy++)for(var dx=0;dx<2&&x+dx<s;dx++){
-          var i=((y+dy)*s+(x+dx))*4;d[i]=cl>>4;d[i+1]=cl;d[i+2]=Math.floor(cl*0.85);d[i+3]=255;}}
-      c.putImageData(img,0,0);
-    });
-
-    // 3 Dynamic Vortex
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000';c.fillRect(0,0,s,s);var cx=s/2,cy=s/2;
-      for(var r=3;r<s*0.52;r+=3){var h2=(r/s*360+t*60)%360,a=Math.max(0,0.65-r/s);
-        c.beginPath();c.strokeStyle=hsl(h2,100,60,a);c.lineWidth=2.5;
-        c.arc(cx,cy,r,t+r*0.04,t+r*0.04+Math.PI*1.6);c.stroke();}
-    });
-
-    // 4 Neural Grid
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000a0a';c.fillRect(0,0,s,s);
-      var nd=[];for(var i=0;i<16;i++)nd.push({x:(Math.sin(i*2.4+t*0.3)*0.42+0.5)*s,y:(Math.cos(i*1.7+t*0.2)*0.42+0.5)*s});
-      for(var a=0;a<nd.length;a++)for(var b=a+1;b<nd.length;b++){
-        var d=Math.hypot(nd[a].x-nd[b].x,nd[a].y-nd[b].y);
-        if(d<s*0.42){c.strokeStyle='rgba(0,255,190,'+(1-d/(s*0.42))*0.65+')';c.lineWidth=1.2;
-          c.beginPath();c.moveTo(nd[a].x,nd[a].y);c.lineTo(nd[b].x,nd[b].y);c.stroke();}}
-      c.fillStyle='#00ffd0';c.shadowColor='#00ffc8';c.shadowBlur=10;
-      for(var e=0;e<nd.length;e++){c.beginPath();c.arc(nd[e].x,nd[e].y,4,0,Math.PI*2);c.fill();}
-      c.shadowBlur=0;
-    });
-
-    // 5 Data Blocks
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000';c.fillRect(0,0,s,s);var cols=10,bw=s/cols;
-      for(var i=0;i<cols;i++)for(var j=0;j<cols;j++){var v=Math.sin(i*0.5+j*0.5+t)*0.5+0.5;
-        c.fillStyle=hsl((i*30+j*20+t*30)%360,100,55,0.35+v*0.5);
-        c.fillRect(i*bw+1,j*bw+bw-v*bw,bw-2,v*bw);}
-    });
-
-    // 6 Sand Waves
-    P.push(function(c,s,t,f){
-      c.fillStyle='#100800';c.fillRect(0,0,s,s);
-      for(var y=0;y<s;y+=2){var bright=40+Math.sin(y*0.05+t*0.3)*30;
-        c.fillStyle=hsl(36,70+bright*0.3,bright);c.fillRect(0,y,s,2);}
-    });
-
-    // 7 Galactic River
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000010';c.fillRect(0,0,s,s);
-      for(var i=0;i<200;i++){var ang=i/200*Math.PI*2+t*0.1,r=i/200*s*0.46;
-        var x=s/2+Math.cos(ang+Math.sin(r*0.02)*2)*r;
-        var y=s/2+Math.sin(ang+Math.cos(r*0.02)*2)*r*0.6;
-        c.fillStyle='rgba('+(80+i*0.5|0)+','+(100+i*0.3|0)+',255,'+(0.4+Math.sin(i*0.3+t)*0.3)+')';
-        c.fillRect(x,y,2,2);}
-    });
-
-    // 8 Radial Drift
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000';c.fillRect(0,0,s,s);var cx=s/2,cy=s/2;
-      for(var a=0;a<Math.PI*2;a+=0.1)for(var r=10;r<s*0.46;r+=10){
-        var dr=Math.sin(r*0.05+t+a*3)*8;c.fillStyle=hsl((a/(Math.PI*2)*360+t*40)%360,100,60,0.35);
-        c.fillRect(cx+Math.cos(a+dr*0.01)*(r+dr),cy+Math.sin(a+dr*0.01)*(r+dr),2,2);}
-    });
-
-    // 9 Geometric Repeat
-    P.push(function(c,s,t,f){
-      c.fillStyle='#050510';c.fillRect(0,0,s,s);var n=6,st=s/n;
-      for(var i=0;i<n;i++)for(var j=0;j<n;j++){var cx=i*st+st/2,cy=j*st+st/2,rot=t+(i+j)*0.4,sz=st*0.3;
-        c.save();c.translate(cx,cy);c.rotate(rot);
-        c.strokeStyle=hsl((i*n+j)*25+t*20,100,60);c.lineWidth=2;
-        c.strokeRect(-sz/2,-sz/2,sz,sz);c.restore();}
-    });
-
-    // 10 Magnetic Field
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000';c.fillRect(0,0,s,s);
-      for(var y=0;y<s;y+=10)for(var x=0;x<s;x+=10){
-        var dx1=x-s*0.3,dy1=y-s*0.5,dx2=x-s*0.7,dy2=y-s*0.5;
-        var fx=dx1/(dx1*dx1+dy1*dy1+1)*800-dx2/(dx2*dx2+dy2*dy2+1)*800;
-        var fy=dy1/(dx1*dx1+dy1*dy1+1)*800-dy2/(dx2*dx2+dy2*dy2+1)*800;
-        var len=Math.sqrt(fx*fx+fy*fy);if(len>0){
-          c.strokeStyle=hsl((Math.atan2(fy,fx)/Math.PI*180+180+t*10)%360,100,60,0.6);c.lineWidth=1.2;
-          c.beginPath();c.moveTo(x-fx/len*4,y-fy/len*4);c.lineTo(x+fx/len*4,y+fy/len*4);c.stroke();}}
-    });
-
-    // 11 Ordered Chaos
-    P.push(function(c,s,t,f){
-      c.fillStyle='#010108';c.fillRect(0,0,s,s);c.shadowBlur=8;
-      for(var i=0;i<60;i++){var x=(Math.sin(i*1.3+t*0.5)*0.45+0.5)*s,y=(Math.cos(i*0.9+t*0.3)*0.45+0.5)*s;
-        var r=Math.max(1,2+Math.sin(i+t)*4);c.fillStyle=hsl(i*15+t*30,100,60);c.shadowColor=c.fillStyle;
-        c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();}c.shadowBlur=0;
-    });
-
-    // 12 Fractal Spiral
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000';c.fillRect(0,0,s,s);c.save();c.translate(s/2,s/2);
-      for(var d=0;d<5;d++){var sc=Math.pow(0.65,d);c.save();c.rotate(t*(d%2===0?1:-1)*0.5+d);c.scale(sc,sc);
-        c.strokeStyle=hsl(d*45+t*20,100,60);c.lineWidth=2.5/sc;c.beginPath();
-        for(var a=0;a<Math.PI*4;a+=0.06){var r=a*s*0.04;a===0?c.moveTo(Math.cos(a)*r,Math.sin(a)*r):c.lineTo(Math.cos(a)*r,Math.sin(a)*r);}
-        c.stroke();c.restore();}c.restore();
-    });
-
-    // 13 Electric Storm
-    P.push(function(c,s,t,f){
-      c.fillStyle='rgba(0,0,12,0.7)';c.fillRect(0,0,s,s);c.shadowBlur=14;c.shadowColor='#6060ff';
-      for(var b=0;b<6;b++){var x=(Math.sin(b*1.4+t*0.2)*0.5+0.5)*s,y=0;c.beginPath();c.moveTo(x,y);
-        c.strokeStyle='rgba(160,160,255,0.85)';c.lineWidth=2;
-        while(y<s){x+=(Math.random()-0.5)*28;y+=8+Math.random()*8;c.lineTo(x,y);}c.stroke();}
-      c.shadowBlur=0;
-    });
-
-    // 14 DNA Helix
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000a05';c.fillRect(0,0,s,s);var cx=s/2;
-      for(var y=0;y<s;y+=3){var ph=y*0.04+t,x1=cx+Math.sin(ph)*75,x2=cx+Math.sin(ph+Math.PI)*75;
-        c.fillStyle='rgba(0,255,160,'+(0.4+Math.sin(ph)*0.3)+')';c.fillRect(x1,y,4,3);
-        c.fillStyle='rgba(255,0,200,'+(0.4+Math.sin(ph)*0.3)+')';c.fillRect(x2,y,4,3);
-        if(y%15===0){c.strokeStyle='rgba(255,255,255,0.3)';c.lineWidth=1;c.beginPath();c.moveTo(x1+2,y+1);c.lineTo(x2+2,y+1);c.stroke();}}
-    });
-
-    // 15 Coral Growth
-    P.push(function(c,s,t,f){
-      c.fillStyle='#000510';c.fillRect(0,0,s,s);
-      function br(x,y,a,l,d){if(d===0||l<2)return;var ex=x+Math.cos(a)*l,ey=y+Math.sin(a)*l;
-        c.strokeStyle=hsl((d*30+t*20)%360,100,40+d*8);c.lineWidth=d*0.6;c.beginPath();c.moveTo(x,y);c.lineTo(ex,ey);c.stroke();
-        br(ex,ey,a-0.4-Math.sin(t+d)*0.1,l*0.7,d-1);br(ex,ey,a+0.4+Math.sin(t+d)*0.1,l*0.7,d-1);}
-      br(s/2,s,-Math.PI/2+Math.sin(t*0.3)*0.15,s*0.2,7);
-    });
-
-    // 16-19
-    P.push(function(c,s,t,f){ // Quantum Field
-      var img=c.getImageData(0,0,s,s),d=img.data;
-      for(var y=0;y<s;y+=2)for(var x=0;x<s;x+=2){
-        var v=Math.sin(x/s*8+t)*Math.sin(y/s*8+t*0.8)*Math.cos((x/s+y/s)*4+t*0.6);
-        var cl=Math.floor((v*0.5+0.5)*255);
-        for(var dy=0;dy<2&&y+dy<s;dy++)for(var dx=0;dx<2&&x+dx<s;dx++){
-          var i=((y+dy)*s+(x+dx))*4;d[i]=cl>>3;d[i+1]=cl;d[i+2]=cl>>1;d[i+3]=255;}}
-      c.putImageData(img,0,0);
-    });
-
-    P.push(function(c,s,t,f){ // Topographic
-      c.fillStyle='#001008';c.fillRect(0,0,s,s);
-      for(var lv=0;lv<12;lv++){c.strokeStyle=hsl(120+lv*15,80,32+lv*3);c.lineWidth=1.2;c.beginPath();var first=true;
-        for(var x=0;x<=s;x+=3){var h2=Math.sin(x*0.015+t)*0.3+Math.sin(x*0.03+t*0.7)*0.2+0.5;
-          if(Math.abs(h2-lv/12)<0.04){first?c.moveTo(x,h2*s):c.lineTo(x,h2*s);first=false;}else first=true;}c.stroke();}
-    });
-
-    P.push(function(c,s,t,f){ // Mirror Flow
-      c.fillStyle='#000';c.fillRect(0,0,s,s);var half=s/2;
-      for(var y=0;y<half;y+=4)for(var x=0;x<half;x+=4){
-        var v=Math.sin(x*0.02+y*0.015+t)*0.5+0.5;c.fillStyle=hsl((v*200+t*20)%360,100,60,0.25+v*0.5);
-        c.fillRect(x,y,4,4);c.fillRect(s-x-4,y,4,4);c.fillRect(x,s-y-4,4,4);c.fillRect(s-x-4,s-y-4,4,4);}
-    });
-
-    P.push(function(c,s,t,f){ // Smoke
-      c.fillStyle='rgba(5,5,10,0.25)';c.fillRect(0,0,s,s);
-      for(var i=0;i<28;i++){var x=(Math.sin(i*0.7+t*0.3)*0.4+0.5)*s,y=s-(((t*30+i*20)%s+s)%s);
-        var r=20+Math.sin(i+t)*10;var g=c.createRadialGradient(x,y,0,x,y,r);
-        g.addColorStop(0,'rgba(150,160,180,0.14)');g.addColorStop(1,'rgba(0,0,0,0)');
-        c.fillStyle=g;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();}
-    });
-
-    // patterns 20-59: procedural generators
-    var gens = [
-      function(c,s,t,f,sd){ // rings
-        c.fillStyle='#000';c.fillRect(0,0,s,s);
-        for(var r=0;r<s*0.5;r+=5){c.beginPath();c.strokeStyle=hsl((r*sd+t*30)%360,100,55,(1-r/(s*0.5))*0.55);
-          c.lineWidth=2.5;c.arc(s/2+Math.sin(t+r*0.04)*5,s/2,r,0,Math.PI*2);c.stroke();}
+  /* ─── Face Material ─── */
+  function createFaceMaterial(mode) {
+    return new THREE.ShaderMaterial({
+      vertexShader:   VERT_SHADER,
+      fragmentShader: FRAG_SHADER,
+      uniforms: {
+        uTime:  { value: 0 },
+        uScale: { value: params.scale },
+        uChaos: { value: params.chaos },
+        uMode:  { value: mode }
       },
-      function(c,s,t,f,sd){ // flow grid
-        c.fillStyle='#000';c.fillRect(0,0,s,s);var g=14+Math.floor(sd*2),cl=s/g;
-        for(var gy=0;gy<g;gy++)for(var gx=0;gx<g;gx++){
-          var ang=Math.sin(gx*0.3*sd+t)*Math.cos(gy*0.3+t*0.8)*Math.PI,l=cl*0.38;
-          c.strokeStyle=hsl((gx*10+gy*8+t*20+sd*30)%360,100,55);c.lineWidth=1.2;c.beginPath();
-          c.moveTo(gx*cl+cl/2,gy*cl+cl/2);c.lineTo(gx*cl+cl/2+Math.cos(ang)*l,gy*cl+cl/2+Math.sin(ang)*l);c.stroke();}
-      },
-      function(c,s,t,f,sd){ // nebula blobs
-        c.fillStyle='rgba(0,0,'+Math.floor(sd*3)+',0.3)';c.fillRect(0,0,s,s);
-        for(var i=0;i<30+sd*5;i++){var x=(Math.sin(i*1.9*sd+t*0.15)*0.4+0.5)*s,y=(Math.cos(i*1.3+t*0.12)*0.4+0.5)*s;
-          var r=10+Math.sin(i+t)*sd;var g=c.createRadialGradient(x,y,0,x,y,r);
-          g.addColorStop(0,hsl((100+i*5*sd+t*10)%360,80,60,0.55));g.addColorStop(1,'rgba(0,0,0,0)');
-          c.fillStyle=g;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();}
-      },
-      function(c,s,t,f,sd){ // wavy lines
-        c.fillStyle='#000';c.fillRect(0,0,s,s);
-        for(var i=0;i<18+sd*3;i++){var y=i/(18+sd*3)*s;c.beginPath();
-          c.strokeStyle=hsl((i*18*sd+t*15)%360,100,55,0.65);c.lineWidth=1.8;
-          for(var x=0;x<=s;x+=3){var py=y+Math.sin(x*0.02*sd+t+i)*22;x===0?c.moveTo(x,py):c.lineTo(x,py);}c.stroke();}
-      },
-      function(c,s,t,f,sd){ // pixel field
-        c.fillStyle='#000';c.fillRect(0,0,s,s);
-        for(var y=0;y<s;y+=4)for(var x=0;x<s;x+=4){
-          var v=Math.sin(x*0.02*sd+t)+Math.cos(y*0.02*sd+t*0.7);
-          c.fillStyle=hsl((v*90+180+t*20+sd*40)%360,100,30+Math.abs(v)*28);c.fillRect(x,y,4,4);}
-      },
-      function(c,s,t,f,sd){ // star field
-        c.fillStyle='#00000a';c.fillRect(0,0,s,s);
-        for(var i=0;i<80;i++){var x=(Math.sin(i*1.7*sd+t*0.01)*0.48+0.5)*s;
-          var y=(Math.cos(i*2.1+t*0.008)*0.48+0.5)*s;
-          var br=0.3+Math.sin(i+t*2)*0.3;c.fillStyle='rgba(255,255,255,'+br+')';
-          c.beginPath();c.arc(x,y,0.5+Math.sin(i*0.5+t)*0.5,0,Math.PI*2);c.fill();}
-      },
-      function(c,s,t,f,sd){ // black hole
-        c.fillStyle='#000';c.fillRect(0,0,s,s);var cx=s/2,cy=s/2;
-        for(var r=s*0.48;r>2;r-=3){var h2=(r+t*60)%360,a=Math.max(0,(1-r/(s*0.48))*0.55);
-          c.beginPath();c.arc(cx+Math.sin(r*0.05+t)*4,cy,r,0,Math.PI*2);
-          c.strokeStyle=hsl(h2,100,25+(1-r/(s*0.48))*50,a);c.lineWidth=1.8;c.stroke();}
-        var g=c.createRadialGradient(cx,cy,0,cx,cy,s*0.1);g.addColorStop(0,'#000');g.addColorStop(1,'rgba(0,0,0,0)');
-        c.fillStyle=g;c.beginPath();c.arc(cx,cy,s*0.1,0,Math.PI*2);c.fill();
-      },
-      function(c,s,t,f,sd){ // aurora
-        c.fillStyle='#000510';c.fillRect(0,0,s,s);
-        for(var band=0;band<5;band++){var baseY=s*(0.2+band*0.12),h2=100+band*40+t*15;
-          c.beginPath();c.moveTo(0,baseY);
-          for(var x=0;x<=s;x+=4){c.lineTo(x,baseY+Math.sin(x*0.01+t+band)*30+Math.sin(x*0.03+t*0.7+band*1.3)*15);}
-          c.lineTo(s,s);c.lineTo(0,s);c.closePath();
-          var g=c.createLinearGradient(0,baseY-35,0,baseY+35);
-          g.addColorStop(0,hsl(h2%360,100,70,0));g.addColorStop(0.5,hsl(h2%360,100,60,0.3));g.addColorStop(1,hsl(h2%360,100,40,0));
-          c.fillStyle=g;c.fill();}
-      },
-    ];
-
-    for (var pi = 20; pi < 60; pi++) {
-      (function(idx) {
-        var gi = idx % gens.length;
-        var seed = 1 + (idx - 20) * 0.35;
-        P.push(function(c, s, t, f) { gens[gi](c, s, t + idx * 0.12, f, seed); });
-      })(pi);
-    }
-    return P;
+      transparent: true,
+      side: THREE.DoubleSide
+    });
   }
 
-  var PATTERNS = makePatterns();
-  console.log('[cube3d] ' + PATTERNS.length + ' patterns ready');
+  /* ─── Build Cube ─── */
+  function buildCube() {
+    cubeGroup = new THREE.Group();
+    scene.add(cubeGroup);
+    faceShards = [];
 
-  // ============================================================
-  // THREE.JS SETUP
-  // ============================================================
-  var canvas = document.getElementById('cubeCan');
-  if (!canvas) { showCubeError('cubeCan not found'); return; }
+    const geo  = new THREE.BoxGeometry(2, 2, 2, 32, 32, 32);
+    const mat  = createFaceMaterial(params.presetIndex);
 
-  S.renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-  S.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  S.renderer.setSize(W, H);
-  S.renderer.setClearColor(0x000000, 0);
-  S.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  S.renderer.toneMappingExposure = 1.3;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.isCubeMain = true;
+    cubeGroup.add(mesh);
+    faceShards.push(mesh);
 
-  S.scene = new THREE.Scene();
-  S.scene.fog = new THREE.FogExp2(0x000008, 0.01);
-
-  S.camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
-  S.camera.position.set(0, 1.2, 5.0);
-  S.camera.lookAt(0, 0, 0);
-
-  // Lights
-  S.scene.add(new THREE.AmbientLight(0x102030, 1.0));
-  var dLight = new THREE.DirectionalLight(0x00ffc8, 1.5);
-  dLight.position.set(3, 6, 4);
-  S.scene.add(dLight);
-  var pl1 = new THREE.PointLight(0xff00ff, 2.0, 14);
-  pl1.position.set(-3, 2, 2);
-  S.scene.add(pl1);
-  var pl2 = new THREE.PointLight(0x00e5ff, 1.5, 14);
-  pl2.position.set(3, -1, 3);
-  S.scene.add(pl2);
-  var pl3 = new THREE.PointLight(0xffb800, 1.0, 12);
-  pl3.position.set(0, -3, -2);
-  S.scene.add(pl3);
-  S.lights = { dir: dLight, p1: pl1, p2: pl2, p3: pl3 };
-
-  // Face textures
-  for (var fi = 0; fi < 6; fi++) {
-    var fc = document.createElement('canvas'); fc.width = FS; fc.height = FS;
-    var fctx = fc.getContext('2d'); fctx.fillStyle = '#000'; fctx.fillRect(0, 0, FS, FS);
-    var tex = new THREE.CanvasTexture(fc); tex.needsUpdate = true;
-    S.faceCanvases.push(fc); S.faceCtxs.push(fctx); S.faceTextures.push(tex);
-  }
-
-  // Cube group (for scaling independently)
-  S.cubeGroup = new THREE.Group();
-  S.scene.add(S.cubeGroup);
-
-  var geo = new THREE.BoxGeometry(2, 2, 2);
-  S.materials = S.faceTextures.map(function(tex) {
-    return new THREE.MeshStandardMaterial({
-      map: tex, emissiveMap: tex, emissive: new THREE.Color(0x00ffc8),
-      emissiveIntensity: S.emissive, roughness: 0.12, metalness: 0.7,
-    });
-  });
-  S.cube = new THREE.Mesh(geo, S.materials);
-  S.cubeGroup.add(S.cube);
-
-  // Edges
-  var edgeMat = new THREE.LineBasicMaterial({ color: 0x00ffc8, transparent: true, opacity: S.edgeGlow });
-  S.edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
-  S.cube.add(S.edges);
-
-  // Shell
-  S.shellMat = new THREE.MeshBasicMaterial({
-    color: 0x00ffc8, transparent: true, opacity: 0.06,
-    side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  S.shell = new THREE.Mesh(new THREE.BoxGeometry(2.12, 2.12, 2.12), S.shellMat);
-  S.cube.add(S.shell);
-
-  // Reflection cube
-  S.refMats = S.faceTextures.map(function(tex) {
-    return new THREE.MeshStandardMaterial({
-      map: tex, emissiveMap: tex, emissive: new THREE.Color(0x00ffc8),
-      emissiveIntensity: S.emissive * 0.25, roughness: 0.3, metalness: 0.4,
-      transparent: true, opacity: 0.2,
-    });
-  });
-  S.reflCube = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), S.refMats);
-  S.reflCube.position.set(0, -3.5, 0);
-  S.reflCube.scale.set(1, -1, 1);
-  S.reflCube.visible = S.reflection;
-  S.scene.add(S.reflCube);
-
-  // Floor
-  S.reflFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 30),
-    new THREE.MeshStandardMaterial({ color: 0x001a14, roughness: 0.03, metalness: 0.95, transparent: true, opacity: 0.4 })
-  );
-  S.reflFloor.rotation.x = -Math.PI / 2;
-  S.reflFloor.position.y = -1.22;
-  S.reflFloor.visible = S.reflection;
-  S.scene.add(S.reflFloor);
-
-  // Grid
-  S.floorGrid = new THREE.GridHelper(30, 30, 0x00ffc8, 0x003828);
-  S.floorGrid.position.y = -1.23;
-  S.floorGrid.material.transparent = true;
-  S.floorGrid.material.opacity = 0.22;
-  S.floorGrid.visible = S.showGrid;
-  S.scene.add(S.floorGrid);
-
-  // Shards
-  for (var si = 0; si < 28; si++) {
-    var sGeo = new THREE.BoxGeometry(0.15+Math.random()*0.5, 0.15+Math.random()*0.5, 0.04+Math.random()*0.15);
-    var sCol = new THREE.Color(); sCol.setHSL(0.42+Math.random()*0.15, 1, 0.55);
-    var shard = new THREE.Mesh(sGeo, new THREE.MeshStandardMaterial({
-      color: sCol, emissive: new THREE.Color(0x00ffc8), emissiveIntensity: 0.6,
-      transparent: true, opacity: 0.88, roughness: 0.1, metalness: 0.8,
+    /* Wireframe edge accent */
+    const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(2.002, 2.002, 2.002));
+    const line  = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
+      color: 0x00f0ff, transparent: true, opacity: 0.4
     }));
-    var home = new THREE.Vector3((Math.random()-0.5)*1.8,(Math.random()-0.5)*1.8,(Math.random()-0.5)*1.8);
-    shard.position.copy(home);
-    shard.userData = { home: home.clone(), vel: new THREE.Vector3(),
-      rotVel: new THREE.Vector3((Math.random()-0.5)*0.08,(Math.random()-0.5)*0.08,(Math.random()-0.5)*0.08) };
-    shard.visible = false;
-    S.scene.add(shard);
-    S.shards.push(shard);
-  }  // ============================================================
-  // SHATTER
-  // ============================================================
-  function triggerShatter() {
-    if (S.shattered) {
-      // reassemble
-      S.shattered = false;
-      S.cube.visible = S.visible;
-      S.edges.visible = S.visible;
-      S.shell.visible = S.visible;
-      S.shards.forEach(function(sh) { sh.visible = false; });
-      if (typeof showToast === 'function') showToast('Reassembled!');
-      return;
+    cubeGroup.add(line);
+  }
+
+  /* ─── Internal Instanced Particles ─── */
+  function buildInternalParticles() {
+    const COUNT   = 400;
+    const geo     = new THREE.SphereGeometry(0.018, 6, 6);
+    const mat     = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    instanceMesh  = new THREE.InstancedMesh(geo, mat, COUNT);
+    instanceMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < COUNT; i++) {
+      dummy.position.set(
+        (Math.random()-0.5) * 1.8,
+        (Math.random()-0.5) * 1.8,
+        (Math.random()-0.5) * 1.8
+      );
+      dummy.updateMatrix();
+      instanceMesh.setMatrixAt(i, dummy.matrix);
+
+      // Random color (cyan/violet/gold)
+      const colors = [0x00f0ff, 0x8b00ff, 0xffd700];
+      instanceMesh.setColorAt(i, new THREE.Color(colors[i % 3]));
     }
-    S.shattered = true;
-    S.cube.visible = false;
-    S.edges.visible = false;
-    S.shell.visible = false;
-    S.shards.forEach(function(sh) {
-      sh.visible = true;
-      sh.position.set((Math.random()-0.5)*0.5,(Math.random()-0.5)*0.5,(Math.random()-0.5)*0.5);
-      var f = 0.08 + Math.random() * 0.16;
-      sh.userData.vel.set((Math.random()-0.5)*f*6,(Math.random()-0.5)*f*6+0.06,(Math.random()-0.5)*f*6);
-      sh.userData.rotVel.set((Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2);
+    scene.add(instanceMesh);
+  }
+
+  /* ─── Post-Processing ─── */
+  function buildPostProcessing() {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+
+    /* Unreal Bloom */
+    bloomPass = new THREE.UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      params.bloom, // strength
+      0.55,         // radius
+      0.25          // threshold
+    );
+    composer.addPass(bloomPass);
+
+    /* Chromatic Aberration */
+    const chromaPass = new THREE.ShaderPass(ChromaShader);
+    chromaPass.uniforms.uOffset.value = 0.003;
+    composer.addPass(chromaPass);
+
+    /* Film Grain */
+    const grainPass = new THREE.ShaderPass(GrainShader);
+    composer.addPass(grainPass);
+    composer.passes[composer.passes.length-1].renderToScreen = true;
+  }
+
+  /* ══════════════════════════════════════════════
+     VORONOI SHATTER
+  ══════════════════════════════════════════════ */
+
+  function shatter() {
+    if (shattered) return;
+    shattered   = true;
+    shatterTime = 0;
+
+    // Remove main cube
+    cubeGroup.children.slice().forEach(c => cubeGroup.remove(c));
+
+    const SHARD_COUNT = 28;
+    faceShards = [];
+
+    for (let i = 0; i < SHARD_COUNT; i++) {
+      // Random sub-box shard
+      const sx = 0.3 + Math.random() * 0.6;
+      const sy = 0.3 + Math.random() * 0.6;
+      const sz = 0.3 + Math.random() * 0.6;
+
+      const geo  = new THREE.BoxGeometry(sx, sy, sz, 4, 4, 4);
+      const mat  = createFaceMaterial(params.presetIndex);
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        (Math.random()-0.5) * 0.8,
+        (Math.random()-0.5) * 0.8,
+        (Math.random()-0.5) * 0.8
+      );
+      mesh.rotation.set(
+        Math.random()*Math.PI,
+        Math.random()*Math.PI,
+        Math.random()*Math.PI
+      );
+
+      // Store velocity for animation
+      mesh.userData.vel = new THREE.Vector3(
+        (Math.random()-0.5) * 0.06,
+        (Math.random()-0.5) * 0.06,
+        (Math.random()-0.5) * 0.06
+      );
+      mesh.userData.angVel = new THREE.Vector3(
+        (Math.random()-0.5) * 0.05,
+        (Math.random()-0.5) * 0.05,
+        (Math.random()-0.5) * 0.05
+      );
+
+      cubeGroup.add(mesh);
+      faceShards.push(mesh);
+    }
+
+    // Auto-reassemble after 3 seconds
+    setTimeout(reassemble, 3000);
+  }
+
+  function reassemble() {
+    shattered = false;
+    cubeGroup.children.slice().forEach(c => cubeGroup.remove(c));
+    buildCube();
+  }
+
+  /* ══════════════════════════════════════════════
+     INTERACTION (Mouse / Touch)
+  ══════════════════════════════════════════════ */
+
+  let isDragging = false;
+  let prevMouse  = { x: 0, y: 0 };
+  let flickVel   = { x: 0, y: 0 };
+
+  function setupInteraction(el) {
+    /* Mouse */
+    el.addEventListener('mousedown', e => {
+      isDragging = true;
+      prevMouse  = { x: e.clientX, y: e.clientY };
+      flickVel   = { x: 0, y: 0 };
     });
-    if (typeof showToast === 'function') showToast('💥 SHATTERED!');
-    // auto reassemble
-    setTimeout(function() { if (S.shattered) triggerShatter(); }, 4000);
-  }
 
-  // ============================================================
-  // POV MODE — inside the cube looking around
-  // ============================================================
-  var povCamOffset = new THREE.Vector3(0, 0, 0);
-  var defaultCamPos = new THREE.Vector3(0, 1.2, 5.0);
-
-  function enterPOV() {
-    S.povMode = true;
-    S.povYaw = 0;
-    S.povPitch = 0;
-    S.camera.position.set(0, 0, 0); // inside cube center
-    S.camera.fov = 90; // wide fov for immersion
-    S.camera.updateProjectionMatrix();
-    // make cube faces render on inside (backside)
-    S.materials.forEach(function(m) { m.side = THREE.BackSide; });
-    // hide edges/shell in POV
-    if (S.edges) S.edges.visible = false;
-    if (S.shell) S.shell.visible = false;
-    // hide reflection in POV
-    if (S.reflCube) S.reflCube.visible = false;
-    if (S.reflFloor) S.reflFloor.visible = false;
-    if (S.floorGrid) S.floorGrid.visible = false;
-    if (typeof showToast === 'function') showToast('👁 POV Mode — drag to look around');
-  }
-
-  function exitPOV() {
-    S.povMode = false;
-    S.camera.position.copy(defaultCamPos);
-    S.camera.fov = 50;
-    S.camera.updateProjectionMatrix();
-    S.camera.lookAt(0, 0, 0);
-    // restore face materials to front side
-    S.materials.forEach(function(m) { m.side = THREE.FrontSide; });
-    if (S.edges) S.edges.visible = S.visible;
-    if (S.shell) S.shell.visible = S.visible;
-    if (S.reflCube) S.reflCube.visible = S.reflection && S.visible;
-    if (S.reflFloor) S.reflFloor.visible = S.reflection && S.visible;
-    if (S.floorGrid) S.floorGrid.visible = S.showGrid && S.visible;
-    if (typeof showToast === 'function') showToast('🔙 Exited POV Mode');
-  }
-
-  function updatePOVCamera() {
-    if (!S.povMode) return;
-    // look direction from yaw/pitch
-    var dir = new THREE.Vector3();
-    dir.x = Math.sin(S.povYaw) * Math.cos(S.povPitch);
-    dir.y = Math.sin(S.povPitch);
-    dir.z = -Math.cos(S.povYaw) * Math.cos(S.povPitch);
-    dir.normalize();
-    var target = new THREE.Vector3().copy(S.camera.position).add(dir);
-    S.camera.lookAt(target);
-  }
-
-  // ============================================================
-  // FIGHT MODE — 2D particles attack the cube
-  // ============================================================
-  function startFightMode() {
-    S.fightMode = true;
-    S.fightHP = 100;
-    S.fightHits = [];
-    // show game HUD
-    var hud = document.getElementById('gameHUD');
-    var hudTitle = document.getElementById('gameHUDTitle');
-    var hudInfo = document.getElementById('gameHUDInfo');
-    if (hud) hud.style.display = 'block';
-    if (hudTitle) hudTitle.textContent = '⚔ CUBE FIGHT';
-    if (hudInfo) hudInfo.textContent = 'HP: 100 — Particles are attacking!';
-    if (typeof showToast === 'function') showToast('⚔ Fight Mode! Particles vs Cube!');
-  }
-
-  function stopFightMode() {
-    S.fightMode = false;
-    S.fightHP = 100;
-    S.fightHits = [];
-    var hud = document.getElementById('gameHUD');
-    if (hud) hud.style.display = 'none';
-  }
-
-  function updateFightMode(dt) {
-    if (!S.fightMode || !window.ENG) return;
-
-    var particles = window.ENG.particles || [];
-    var cubeScreenX = W / 2;
-    var cubeScreenY = H / 2;
-    var cubeRadius = 120 * S.cubeScale; // approximate screen radius
-
-    var hits = 0;
-    var hitPower = 0;
-
-    // check particles near cube center
-    for (var i = 0; i < particles.length; i += 3) {
-      var p = particles[i];
-      if (!p) continue;
-      var dx = p.x - cubeScreenX;
-      var dy = p.y - cubeScreenY;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < cubeRadius) {
-        hits++;
-        var speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        hitPower += speed * 0.1;
-
-        // push particle away from cube center
-        if (dist > 1) {
-          p.vx += dx / dist * 1.5;
-          p.vy += dy / dist * 1.5;
-        }
-
-        // visual hit flash
-        if (Math.random() < 0.05) {
-          S.fightHits.push({
-            x: (dx / cubeRadius) * 0.8,
-            y: (dy / cubeRadius) * 0.8,
-            life: 1.0,
-            color: new THREE.Color().setHSL(Math.random(), 1, 0.7),
-          });
-        }
-      }
-    }
-
-    // damage cube
-    var damage = (hits * 0.001 + hitPower * 0.005) * dt * 60;
-    S.fightHP = Math.max(0, S.fightHP - damage);
-
-    // audio boost damage
-    if (window.ENG.audioData && window.ENG.audioData.beat) {
-      S.fightHP = Math.max(0, S.fightHP - 0.5);
-    }
-
-    // update fight hit visuals
-    for (var hi = S.fightHits.length - 1; hi >= 0; hi--) {
-      S.fightHits[hi].life -= dt * 2;
-      if (S.fightHits[hi].life <= 0) S.fightHits.splice(hi, 1);
-    }
-
-    // make cube shake when hit
-    if (hits > 5 && S.cube && !S.shattered) {
-      S.cube.position.x = (Math.random() - 0.5) * 0.05 * (hits / 20);
-      S.cube.position.y = (Math.random() - 0.5) * 0.05 * (hits / 20);
-    } else if (S.cube && !S.shattered) {
-      S.cube.position.x *= 0.9;
-      S.cube.position.y *= 0.9;
-    }
-
-    // change cube color based on HP
-    if (S.materials && S.fightHP < 50) {
-      var damage_hue = (1 - S.fightHP / 100) * 0.1; // shift from green to red
-      var dmgColor = new THREE.Color().setHSL(damage_hue, 1, 0.5);
-      S.materials.forEach(function(m) {
-        m.emissive.lerp(dmgColor, 0.05);
-      });
-    }
-
-    // cube destroyed!
-    if (S.fightHP <= 0 && !S.shattered) {
-      triggerShatter();
-      S.fightHP = 100; // reset for next round
-      if (typeof showToast === 'function') showToast('💥 CUBE DESTROYED! Respawning...');
-    }
-
-    // render fight hit sparkles on cube
-    renderFightHits();
-
-    // update HUD
-    var hudInfo = document.getElementById('gameHUDInfo');
-    var hudBar = document.getElementById('gameHUDBarFill');
-    if (hudInfo) hudInfo.textContent = 'HP: ' + Math.ceil(S.fightHP) + ' — Hits: ' + hits;
-    if (hudBar) {
-      hudBar.style.width = S.fightHP + '%';
-      hudBar.style.background = S.fightHP > 50
-        ? 'linear-gradient(90deg,#00ffc8,#00e5ff)'
-        : S.fightHP > 25
-          ? 'linear-gradient(90deg,#ffb800,#ff6600)'
-          : 'linear-gradient(90deg,#ff4060,#ff0020)';
-    }
-  }
-
-  function renderFightHits() {
-    if (!S.fightHits.length || !S.cube) return;
-    // Add sparkle point lights temporarily
-    S.fightHits.forEach(function(hit) {
-      if (hit.light) {
-        hit.light.intensity = hit.life * 3;
-        hit.light.position.set(hit.x, hit.y, 1.2);
-      } else if (hit.life > 0.8) {
-        // create temporary point light
-        var light = new THREE.PointLight(hit.color, 3, 3);
-        light.position.set(hit.x, hit.y, 1.2);
-        S.cube.add(light);
-        hit.light = light;
-      }
+    el.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      cubeGroup.rotation.y += dx * 0.006;
+      cubeGroup.rotation.x += dy * 0.006;
+      flickVel = { x: dx, y: dy };
+      prevMouse = { x: e.clientX, y: e.clientY };
     });
-    // cleanup dead lights
-    for (var i = S.fightHits.length - 1; i >= 0; i--) {
-      if (S.fightHits[i].life <= 0 && S.fightHits[i].light) {
-        S.cube.remove(S.fightHits[i].light);
-        S.fightHits[i].light.dispose && S.fightHits[i].light.dispose();
-      }
-    }
-  }
 
-  // ============================================================
-  // TOUCH: PINCH TO RESIZE
-  // ============================================================
-  var pinchStartDist = 0;
-  var pinchStartScale = 1;
-
-  function getTouchDist(e) {
-    if (e.touches.length < 2) return 0;
-    var dx = e.touches[0].clientX - e.touches[1].clientX;
-    var dy = e.touches[0].clientY - e.touches[1].clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  // ============================================================
-  // DRAG + PINCH + FLICK HANDLER
-  // ============================================================
-  var isDragging = false, lmx = 0, lmy = 0, flkx = 0, flky = 0;
-  var flickHistory = []; // track velocity over time
-  var isTouching = false, ltx = 0, lty = 0, tfx = 0, tfy = 0;
-  var isPinching = false;
-
-  function canDrag() {
-    var m = (window.ENG && window.ENG.viewMode) ? window.ENG.viewMode : 'both';
-    return m === '3d' || m === 'both';
-  }
-  function isUI(e) {
-    return e.target && e.target.closest && (
-      e.target.closest('#sidePanel') || e.target.closest('#topBar') ||
-      e.target.closest('#modeTabs') || e.target.closest('.modalOverlay') ||
-      e.target.closest('#panelToggle') || e.target.closest('#forceFieldLayer') ||
-      e.target.closest('#gameHUD'));
-  }
-
-  // MOUSE
-  window.addEventListener('mousedown', function(e) {
-    if (!canDrag() || isUI(e)) return;
-    isDragging = true; S.dragging = true;
-    lmx = e.clientX; lmy = e.clientY; flkx = 0; flky = 0;
-    flickHistory = [];
-  });
-  window.addEventListener('mousemove', function(e) {
-    if (!isDragging) return;
-    var dx = e.clientX - lmx, dy = e.clientY - lmy;
-    flkx = dx; flky = dy;
-    flickHistory.push({ dx: dx, dy: dy, time: performance.now() });
-    if (flickHistory.length > 8) flickHistory.shift();
-
-    if (S.povMode) {
-      S.povYaw += dx * 0.005;
-      S.povPitch = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, S.povPitch - dy * 0.005));
-    } else {
-      S.rotY += dx * 0.006;
-      S.rotX += dy * 0.006;
-    }
-    lmx = e.clientX; lmy = e.clientY;
-  });
-  window.addEventListener('mouseup', function() {
-    if (!isDragging) return;
-    isDragging = false; S.dragging = false;
-
-    // calculate flick speed from history
-    var totalDX = 0, totalDY = 0;
-    if (flickHistory.length >= 2) {
-      var last3 = flickHistory.slice(-3);
-      last3.forEach(function(h) { totalDX += h.dx; totalDY += h.dy; });
-      totalDX /= last3.length;
-      totalDY /= last3.length;
-    }
-
-    if (!S.povMode) {
-      S.rotVX = totalDY * 0.004;
-      S.rotVY = totalDX * 0.004;
-
-      // SHATTER on fast flick
-      var flickMag = Math.sqrt(totalDX * totalDX + totalDY * totalDY);
-      if (flickMag > 25 && !S.shattered) {
-        triggerShatter();
-      }
-    }
-    flickHistory = [];
-  });
-
-  // TOUCH — single finger drag, two finger pinch
-  window.addEventListener('touchstart', function(e) {
-    if (!canDrag()) return;
-    if (isUI(e)) return;
-
-    if (e.touches.length === 2) {
-      // PINCH START
-      isPinching = true;
-      isTouching = false;
-      pinchStartDist = getTouchDist(e);
-      pinchStartScale = S.targetScale;
-      return;
-    }
-
-    if (e.touches.length === 1) {
-      isTouching = true;
-      S.dragging = true;
-      ltx = e.touches[0].clientX;
-      lty = e.touches[0].clientY;
-      tfx = 0; tfy = 0;
-      flickHistory = [];
-    }
-  }, { passive: true });
-
-  window.addEventListener('touchmove', function(e) {
-    if (!canDrag()) return;
-
-    if (isPinching && e.touches.length === 2) {
-      // PINCH ZOOM
-      var dist = getTouchDist(e);
-      var ratio = dist / Math.max(1, pinchStartDist);
-      S.targetScale = Math.max(0.3, Math.min(3.0, pinchStartScale * ratio));
-      return;
-    }
-
-    if (!isTouching || e.touches.length !== 1) return;
-
-    var dx = e.touches[0].clientX - ltx;
-    var dy = e.touches[0].clientY - lty;
-    tfx = dx; tfy = dy;
-    flickHistory.push({ dx: dx, dy: dy, time: performance.now() });
-    if (flickHistory.length > 8) flickHistory.shift();
-
-    if (S.povMode) {
-      S.povYaw += dx * 0.005;
-      S.povPitch = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, S.povPitch - dy * 0.005));
-    } else {
-      S.rotY += dx * 0.006;
-      S.rotX += dy * 0.006;
-    }
-    ltx = e.touches[0].clientX;
-    lty = e.touches[0].clientY;
-  }, { passive: true });
-
-  window.addEventListener('touchend', function(e) {
-    if (isPinching) {
-      isPinching = false;
-      if (e.touches.length === 0) { isTouching = false; S.dragging = false; }
-      return;
-    }
-    if (!isTouching) return;
-    isTouching = false;
-    S.dragging = false;
-
-    // flick calculation
-    var totalDX = 0, totalDY = 0;
-    if (flickHistory.length >= 2) {
-      var last3 = flickHistory.slice(-3);
-      last3.forEach(function(h) { totalDX += h.dx; totalDY += h.dy; });
-      totalDX /= last3.length;
-      totalDY /= last3.length;
-    }
-
-    if (!S.povMode) {
-      S.rotVX = totalDY * 0.004;
-      S.rotVY = totalDX * 0.004;
-
-      var flickMag = Math.sqrt(totalDX * totalDX + totalDY * totalDY);
-      if (flickMag > 18 && !S.shattered) {
-        triggerShatter();
-      }
-    }
-    flickHistory = [];
-  });
-
-  // MOUSE WHEEL ZOOM
-  window.addEventListener('wheel', function(e) {
-    if (!canDrag() || S.zenOrbit || S.povMode) return;
-    if (e.target.closest && e.target.closest('#sidePanel')) return;
-    S.targetScale = Math.max(0.3, Math.min(3.0, S.targetScale - e.deltaY * 0.001));
-  }, { passive: true });
-
-  // ============================================================
-  // PATTERN DISPLAY
-  // ============================================================
-  function updatePatDisplay() {
-    var sel = document.getElementById('selCubePattern');
-    if (sel) sel.value = S.patTarget;
-    var ve = document.getElementById('valPatternIdx');
-    if (ve) ve.textContent = (S.patTarget + 1) + '/' + PATTERNS.length;
-  }
-
-  // populate select
-  var selPat = document.getElementById('selCubePattern');
-  if (selPat) {
-    selPat.innerHTML = '';
-    for (var i = 0; i < PNAMES.length; i++) {
-      var op = document.createElement('option'); op.value = i;
-      op.textContent = (i + 1) + '. ' + PNAMES[i]; selPat.appendChild(op);
-    }
-    selPat.value = 0;
-    selPat.addEventListener('change', function() {
-      var idx = parseInt(selPat.value);
-      if (!isNaN(idx) && idx >= 0 && idx < PATTERNS.length) {
-        S.patTarget = idx; S.morphProg = 0; updatePatDisplay();
-      }
+    el.addEventListener('mouseup', () => {
+      isDragging = false;
+      // Flick detection
+      if (Math.hypot(flickVel.x, flickVel.y) > 18) shatter();
     });
-  }
-  updatePatDisplay();
 
-  // ============================================================
-  // ADD POV + FIGHT BUTTONS TO PANEL
-  // ============================================================
-  var cubeBody = document.getElementById('secCubeBody');
-  if (cubeBody) {
-    // POV button
-    var povBtn = document.createElement('button');
-    povBtn.className = 'pBtn';
-    povBtn.id = 'btnPOV';
-    povBtn.textContent = '👁 Enter POV';
-    povBtn.addEventListener('click', function() {
-      if (S.povMode) {
-        exitPOV();
-        povBtn.textContent = '👁 Enter POV';
-      } else {
-        enterPOV();
-        povBtn.textContent = '🔙 Exit POV';
+    /* Touch */
+    let lastTouches = null;
+
+    el.addEventListener('touchstart', e => {
+      e.preventDefault();
+      lastTouches = e.touches;
+      if (e.touches.length === 1) {
+        isDragging = true;
+        prevMouse  = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        flickVel   = { x: 0, y: 0 };
       }
-    });
-    cubeBody.appendChild(povBtn);
+    }, { passive: false });
 
-    // Fight button
-    var fightBtn = document.createElement('button');
-    fightBtn.className = 'pBtn';
-    fightBtn.id = 'btnCubeFight';
-    fightBtn.textContent = '⚔ Cube Fight';
-    fightBtn.addEventListener('click', function() {
-      if (S.fightMode) {
-        stopFightMode();
-        fightBtn.textContent = '⚔ Cube Fight';
-      } else {
-        startFightMode();
-        fightBtn.textContent = '🛑 Stop Fight';
+    el.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (e.touches.length === 1 && isDragging) {
+        const dx = e.touches[0].clientX - prevMouse.x;
+        const dy = e.touches[0].clientY - prevMouse.y;
+        cubeGroup.rotation.y += dx * 0.006;
+        cubeGroup.rotation.x += dy * 0.006;
+        flickVel  = { x: dx, y: dy };
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       }
-    });
-    cubeBody.appendChild(fightBtn);
+      // Pinch-to-zoom
+      if (e.touches.length === 2 && lastTouches && lastTouches.length === 2) {
+        const prevDist = Math.hypot(
+          lastTouches[0].clientX - lastTouches[1].clientX,
+          lastTouches[0].clientY - lastTouches[1].clientY
+        );
+        const currDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const factor = currDist / prevDist;
+        camera.position.z = THREE.MathUtils.clamp(camera.position.z / factor, 2, 12);
+      }
+      lastTouches = e.touches;
+    }, { passive: false });
 
-    // Scale display
-    var scaleLabel = document.createElement('label');
-    scaleLabel.className = 'pLabel';
-    scaleLabel.textContent = 'Cube Scale';
-    cubeBody.appendChild(scaleLabel);
-
-    var scaleRow = document.createElement('div');
-    scaleRow.className = 'pRow';
-    var scaleSlider = document.createElement('input');
-    scaleSlider.type = 'range'; scaleSlider.className = 'pSlider';
-    scaleSlider.min = '0.3'; scaleSlider.max = '3'; scaleSlider.step = '0.1'; scaleSlider.value = '1';
-    scaleSlider.id = 'sliderCubeScale';
-    var scaleVal = document.createElement('span');
-    scaleVal.className = 'pVal'; scaleVal.id = 'valCubeScale'; scaleVal.textContent = '1.0';
-    scaleSlider.addEventListener('input', function() {
-      S.targetScale = parseFloat(scaleSlider.value);
-      scaleVal.textContent = S.targetScale.toFixed(1);
-    });
-    scaleRow.appendChild(scaleSlider); scaleRow.appendChild(scaleVal);
-    cubeBody.appendChild(scaleRow);
-  }
-
-  // ============================================================
-  // CONTROL BINDINGS
-  // ============================================================
-  function bindBtn(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
-  function bindChk(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('change', function() { fn(el.checked); }); }
-  function bindSlider(id, vid, fn) {
-    var el = document.getElementById(id), ve = document.getElementById(vid);
-    if (el) el.addEventListener('input', function() {
-      var v = parseFloat(el.value); fn(v);
-      if (ve) ve.textContent = v.toFixed(1);
+    el.addEventListener('touchend', e => {
+      isDragging = false;
+      if (Math.hypot(flickVel.x, flickVel.y) > 20) shatter();
     });
   }
 
-  bindBtn('btnPrevPattern', function() { S.patTarget = (S.patTarget - 1 + PATTERNS.length) % PATTERNS.length; S.morphProg = 0; updatePatDisplay(); });
-  bindBtn('btnNextPattern', function() { S.patTarget = (S.patTarget + 1) % PATTERNS.length; S.morphProg = 0; updatePatDisplay(); });
-  bindBtn('btnRandPattern', function() { var i = Math.floor(Math.random() * PATTERNS.length); if (i === S.patIdx) i = (i + 1) % PATTERNS.length; S.patTarget = i; S.morphProg = 0; updatePatDisplay(); });
-  bindBtn('btnShatter', function() { triggerShatter(); });
+  /* ══════════════════════════════════════════════
+     POV MODE
+  ══════════════════════════════════════════════ */
 
-  bindChk('chkAutoPattern', function(v) { S.autoPat = v; S.autoTmr = 0; });
-  bindChk('chkAutoSpin', function(v) { S.autoSpin = v; });
-  bindChk('chkZenOrbit', function(v) { S.zenOrbit = v; if (!v && !S.povMode) { S.camera.position.copy(defaultCamPos); S.camera.lookAt(0, 0, 0); } });
-  bindChk('chkReflection', function(v) { S.reflection = v; S.reflCube.visible = v && S.visible && !S.povMode; S.reflFloor.visible = v && S.visible && !S.povMode; });
-  bindChk('chkFloorGrid', function(v) { S.showGrid = v; S.floorGrid.visible = v && S.visible && !S.povMode; });
-
-  bindSlider('sliderAutoInterval', 'valAutoInterval', function(v) { S.autoInt = v; });
-  bindSlider('sliderEdgeGlow', 'valEdgeGlow', function(v) { S.edgeGlow = v; if (S.edges && S.edges.material) S.edges.material.opacity = v; });
-  bindSlider('sliderEmissive', 'valEmissive', function(v) {
-    S.emissive = v;
-    S.materials.forEach(function(m) { m.emissiveIntensity = v; });
-    S.refMats.forEach(function(m) { m.emissiveIntensity = v * 0.25; });
-  });
-
-  // ============================================================
-  // RESIZE
-  // ============================================================
-  window.addEventListener('resize', function() {
-    W = window.innerWidth; H = window.innerHeight;
-    S.camera.aspect = W / H;
-    S.camera.updateProjectionMatrix();
-    S.renderer.setSize(W, H);
-  });
-
-  // ============================================================
-  // GLOBAL API
-  // ============================================================
-  window.setCubeVisible = function(v) {
-    S.visible = v;
-    if (S.cube) S.cube.visible = v && !S.shattered;
-    if (S.reflCube) S.reflCube.visible = v && S.reflection && !S.povMode;
-    if (S.reflFloor) S.reflFloor.visible = v && S.reflection && !S.povMode;
-    if (S.floorGrid) S.floorGrid.visible = v && S.showGrid && !S.povMode;
-    if (!v && S.shattered) triggerShatter();
-    if (!v && S.fightMode) stopFightMode();
-    if (!v && S.povMode) exitPOV();
-  };
-
-  window.nextCubePattern = function() {
-    S.patTarget = (S.patIdx + 1) % PATTERNS.length;
-    S.morphProg = 0;
-    updatePatDisplay();
-  };
-
-  // expose fight mode for game mode buttons
-  window.startCubeFight = startFightMode;
-  window.stopCubeFight = stopFightMode;
-
-  // ============================================================
-  // MAIN RENDER LOOP
-  // ============================================================
-  function loop() {
-    requestAnimationFrame(loop);
-
-    var now = performance.now();
-    var dt = Math.min((now - S.lastTime) / 1000, 0.05);
-    S.lastTime = now;
-    S.time += dt;
-    var t = S.time;
-
-    // --- MORPH ---
-    if (S.morphProg < 1.0) {
-      S.morphProg += 0.03 * dt * 60;
-      if (S.morphProg >= 1.0) { S.morphProg = 1.0; S.patIdx = S.patTarget; }
-    }
-
-    // --- AUTO PATTERN ---
-    if (S.autoPat) {
-      S.autoTmr += dt;
-      if (S.autoTmr >= S.autoInt) {
-        S.autoTmr = 0;
-        S.patTarget = (S.patIdx + 1) % PATTERNS.length;
-        S.morphProg = 0;
-        updatePatDisplay();
-      }
-    }
-
-    // --- FACE TEXTURES ---
-    var pi = S.patIdx % PATTERNS.length;
-    var pt = S.patTarget % PATTERNS.length;
-    for (var f = 0; f < 6; f++) {
-      var ctx = S.faceCtxs[f];
-      var ft = t + f * 0.45;
-      if (S.morphProg < 1.0) {
-        PATTERNS[pi](ctx, FS, ft, f);
-        var tmp = document.createElement('canvas'); tmp.width = FS; tmp.height = FS;
-        var tc = tmp.getContext('2d');
-        PATTERNS[pt](tc, FS, ft, f);
-        ctx.globalAlpha = S.morphProg;
-        ctx.drawImage(tmp, 0, 0);
-        ctx.globalAlpha = 1;
-      } else {
-        PATTERNS[pi](ctx, FS, ft, f);
-      }
-
-      // fight mode: draw damage overlay on faces
-      if (S.fightMode && S.fightHP < 80) {
-        var dmgAlpha = (1 - S.fightHP / 100) * 0.4;
-        ctx.fillStyle = 'rgba(255,0,0,' + dmgAlpha + ')';
-        ctx.fillRect(0, 0, FS, FS);
-        // cracks
-        if (S.fightHP < 40) {
-          ctx.strokeStyle = 'rgba(255,100,50,' + (1 - S.fightHP / 40) * 0.6 + ')';
-          ctx.lineWidth = 2;
-          for (var cr = 0; cr < 3; cr++) {
-            ctx.beginPath();
-            ctx.moveTo(Math.random() * FS, Math.random() * FS);
-            for (var cs = 0; cs < 5; cs++) {
-              ctx.lineTo(Math.random() * FS, Math.random() * FS);
-            }
-            ctx.stroke();
-          }
-        }
-      }
-
-      S.faceTextures[f].needsUpdate = true;
-    }
-
-    // --- SCALE (smooth) ---
-    S.cubeScale += (S.targetScale - S.cubeScale) * 0.12;
-    if (S.cubeGroup) S.cubeGroup.scale.setScalar(S.cubeScale);
-    // sync slider
-    var scaleSlider2 = document.getElementById('sliderCubeScale');
-    var scaleVal2 = document.getElementById('valCubeScale');
-    if (scaleSlider2 && Math.abs(parseFloat(scaleSlider2.value) - S.cubeScale) > 0.05) {
-      scaleSlider2.value = S.cubeScale.toFixed(1);
-    }
-    if (scaleVal2) scaleVal2.textContent = S.cubeScale.toFixed(1);
-
-    // --- ROTATION ---
-    if (!S.shattered && !S.povMode) {
-      if (S.zenOrbit) {
-        S.zenAngle += dt * 0.38;
-        S.camera.position.x = Math.sin(S.zenAngle) * 5.0 * S.cubeScale;
-        S.camera.position.z = Math.cos(S.zenAngle) * 5.0 * S.cubeScale;
-        S.camera.position.y = 1.2 + Math.sin(S.zenAngle * 0.4) * 0.8;
-        S.camera.lookAt(0, 0, 0);
-      } else {
-        if (!S.dragging) {
-          S.rotVX *= 0.92; S.rotVY *= 0.92;
-          S.rotX += S.rotVX; S.rotY += S.rotVY;
-          if (S.autoSpin) S.rotY += 0.004;
-        }
-        S.rotX = Math.max(-Math.PI * 0.48, Math.min(Math.PI * 0.48, S.rotX));
-        S.cube.rotation.x = S.rotX;
-        S.cube.rotation.y = S.rotY;
-        if (S.reflCube) { S.reflCube.rotation.x = S.rotX; S.reflCube.rotation.y = S.rotY; }
-      }
-    }
-
-    // --- POV CAMERA ---
-    updatePOVCamera();
-
-    // --- AUDIO REACTIVITY ---
-    var bass = 0, beat = false;
-    try {
-      if (window.ENG && window.ENG.audioData) {
-        bass = window.ENG.audioData.bass || 0;
-        beat = window.ENG.audioData.beat || false;
-      }
-    } catch (e) {}
-
-    if (S.cube && !S.shattered && !S.povMode) {
-      // audio pulse on top of pinch scale — applied to cube mesh not group
-      var audioScale = beat ? 1.06 + bass * 0.05 : 1.0 + bass * 0.04;
-      var cur = S.cube.scale.x;
-      S.cube.scale.setScalar(cur + (audioScale - cur) * 0.18);
-    }
-
-    if (S.edges && S.edges.material) S.edges.material.opacity = Math.min(2, S.edgeGlow + bass * 0.45);
-    if (S.shellMat) S.shellMat.opacity = Math.min(0.3, 0.06 + bass * 0.14);
-
-    // lights
-    if (S.lights) {
-      S.lights.p1.intensity = 2.0 + bass * 3;
-      S.lights.p2.intensity = 1.5 + bass * 2;
-      S.lights.dir.intensity += ((beat ? 3.5 : 1.5) - S.lights.dir.intensity) * 0.08;
-      S.lights.p1.position.x = Math.sin(t * 0.42) * 5;
-      S.lights.p1.position.z = Math.cos(t * 0.31) * 5;
-      S.lights.p2.position.x = Math.cos(t * 0.37) * 4;
-      S.lights.p2.position.z = Math.sin(t * 0.43) * 4;
-      S.lights.p3.position.x = Math.sin(t * 0.2 + 1) * 3;
-    }
-
-    // --- SHARDS ---
-    if (S.shattered) {
-      S.shards.forEach(function(sh) {
-        if (!sh.visible) return;
-        sh.userData.vel.x += (sh.userData.home.x - sh.position.x) * 0.03;
-        sh.userData.vel.y += (sh.userData.home.y - sh.position.y) * 0.03;
-        sh.userData.vel.z += (sh.userData.home.z - sh.position.z) * 0.03;
-        sh.userData.vel.multiplyScalar(0.86);
-        sh.position.add(sh.userData.vel);
-        sh.rotation.x += sh.userData.rotVel.x;
-        sh.rotation.y += sh.userData.rotVel.y;
-        sh.rotation.z += sh.userData.rotVel.z;
-        sh.userData.rotVel.multiplyScalar(0.93);
-      });
-    }
-
-    // --- FIGHT MODE ---
-    updateFightMode(dt);
-
-    // --- RENDER ---
-    S.renderer.render(S.scene, S.camera);
+  function enablePOV() {
+    povMode = true;
+    camera.position.set(0, 0, 0);
+    camera.fov = 110;
+    camera.updateProjectionMatrix();
   }
 
-  // ============================================================
-  // START
-  // ============================================================
-  loop();
-  console.log('[cube3d] ✅ Cube engine running with:');
-  console.log('  → ' + PATTERNS.length + ' patterns');
-  console.log('  → Pinch to resize');
-  console.log('  → Flick to shatter');
-  console.log('  → POV mode');
-  console.log('  → Fight mode');
+  function disablePOV() {
+    povMode = false;
+    camera.position.set(0, 0, 4.5);
+    camera.fov = 55;
+    camera.updateProjectionMatrix();
+  }
 
-} // end startCubeEngine
+  /* ══════════════════════════════════════════════
+     RENDER LOOP
+  ══════════════════════════════════════════════ */
+
+  function render() {
+    animId = requestAnimationFrame(render);
+    const delta = clock.getDelta();
+    const elapsed = clock.getElapsedTime();
+
+    // Update face materials
+    faceShards.forEach(mesh => {
+      if (mesh.material && mesh.material.uniforms) {
+        mesh.material.uniforms.uTime.value  = elapsed * params.speed;
+        mesh.material.uniforms.uScale.value = params.scale;
+        mesh.material.uniforms.uChaos.value = params.chaos;
+        mesh.material.uniforms.uMode.value  = params.presetIndex;
+      }
+
+      // Shatter animation
+      if (shattered && mesh.userData.vel) {
+        mesh.position.add(mesh.userData.vel);
+        mesh.rotation.x += mesh.userData.angVel.x;
+        mesh.rotation.y += mesh.userData.angVel.y;
+        mesh.rotation.z += mesh.userData.angVel.z;
+        // Drag
+        mesh.userData.vel.multiplyScalar(0.97);
+        mesh.userData.angVel.multiplyScalar(0.97);
+      }
+    });
+
+    // Auto-rotate cube (inversion handled by SyncController via syncData)
+    if (!isDragging && !shattered && !povMode) {
+      cubeGroup.rotation.y += 0.004 * params.rotation * syncData.rotationDir;
+      cubeGroup.rotation.x += 0.002 * params.rotation * syncData.rotationDir;
+    }
+
+    // Scale from sync
+    const targetScale = params.scale * syncData.scaleMult;
+    cubeGroup.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.05);
+
+    // POV: slowly rotate camera inside
+    if (povMode) {
+      camera.rotation.y = Math.sin(elapsed * 0.1) * 0.3;
+      camera.rotation.x = Math.cos(elapsed * 0.08) * 0.15;
+    }
+
+    // Internal particles drift
+    updateInternalParticles(elapsed);
+
+    // Bloom strength
+    if (bloomPass) bloomPass.strength = params.bloom;
+
+    // Grain time
+    const grainPass = composer.passes.find(p => p.uniforms && p.uniforms.uTime);
+    if (grainPass) grainPass.uniforms.uTime.value = elapsed;
+
+    composer.render(delta);
+  }
+
+  function updateInternalParticles(t) {
+    if (!instanceMesh) return;
+    const dummy = new THREE.Object3D();
+    const count = instanceMesh.count;
+
+    for (let i = 0; i < count; i++) {
+      instanceMesh.getMatrixAt(i, dummy.matrix);
+      dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+
+      // Orbital drift
+      const angle = (t * 0.3 + i * 0.04) % (Math.PI * 2);
+      const radius = 0.3 + (i % 7) * 0.12;
+      dummy.position.x += Math.cos(angle + i) * 0.002;
+      dummy.position.y += Math.sin(angle + i * 1.3) * 0.002;
+      dummy.position.z += Math.cos(angle * 0.7 + i) * 0.002;
+
+      // Keep inside cube
+      dummy.position.clampScalar(-0.88, 0.88);
+
+      dummy.updateMatrix();
+      instanceMesh.setMatrixAt(i, dummy.matrix);
+    }
+    instanceMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /* ══════════════════════════════════════════════
+     RESIZE
+  ══════════════════════════════════════════════ */
+
+  function onResize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    composer.setSize(w, h);
+  }
+
+  /* ══════════════════════════════════════════════
+     PUBLIC API
+  ══════════════════════════════════════════════ */
+
+  function start() { if (!animId) render(); }
+  function stop()  { if (animId) { cancelAnimationFrame(animId); animId = null; } }
+
+  function setPreset(index) {
+    params.presetIndex = Math.max(0, Math.min(59, index));
+  }
+
+  function setParams(p) {
+    Object.assign(params, p);
+  }
+
+  function setSyncData(data) {
+    Object.assign(syncData, data);
+  }
+
+  function triggerShatter() { shatter(); }
+
+  function setPOV(enabled) {
+    enabled ? enablePOV() : disablePOV();
+  }
+
+  function setBloom(v) {
+    params.bloom = v;
+    if (bloomPass) bloomPass.strength = v;
+  }
+
+  return { init, start, stop, setPreset, setParams, setSyncData, triggerShatter, setPOV, setBloom };
+
+})();
