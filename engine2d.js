@@ -2,7 +2,7 @@
  * Xoretex Xhaos Cube — engine2d.js
  * 2D Particle Flow Engine, Localization, Panel Logic,
  * Force Fields, Audio, Game Modes, Export Tools
- * Part 1: Core setup, localization, panel, presets, snippets
+ * FIXED: ENG exposed globally, view mode pointer-events, load order
  */
 
 'use strict';
@@ -14,7 +14,7 @@ function reportError(msg, err) {
   const el = document.getElementById('errorOverlay');
   if (!el) return;
   el.style.display = 'block';
-  el.innerHTML += '<div style="margin-bottom:6px;"><b>⚠</b> ' + msg +
+  el.innerHTML += '<div style="margin-bottom:6px;"><b>\u26A0</b> ' + msg +
     (err ? '<br><span style="color:#f88">' + String(err) + '</span>' : '') + '</div>';
   console.error('[XoretexEngine2D]', msg, err || '');
 }
@@ -26,23 +26,24 @@ const TRANSLATIONS = {
   en: {
     presets: 'Presets', liveInjection: 'Live Injection', formulaCode: 'Formula Code',
     apply: 'Apply', valid: 'Valid', invalid: 'Invalid', snippetLibrary: 'Snippet Library',
-    layers: 'Layers', addLayer: '+ Add Layer', audio: 'Audio', microphone: '🎤 Mic',
-    audioFile: '🎵 File', stopAudio: '⏹ Stop', bpm: 'BPM', beat: 'Beat', audioGain: 'Audio Gain',
+    layers: 'Layers', addLayer: '+ Add Layer', audio: 'Audio', microphone: '\uD83C\uDFA4 Mic',
+    audioFile: '\uD83C\uDFB5 File', stopAudio: '\u23F9 Stop', bpm: 'BPM', beat: 'Beat', audioGain: 'Audio Gain',
     forceFields: 'Force Fields', addField: '+ Add', pulsate: 'Pulsate', pulseSpeed: 'Pulse Speed',
     effects: 'Effects', trailFade: 'Trail Fade', motionBlur: 'Motion Blur', glowBloom: 'Glow / Bloom',
     connections: 'Connections', connDist: 'Connection Distance', symmetry: 'Symmetry',
     depth3d: '3D Depth Illusion', trailShape: 'Trail Shape', controls: 'Controls',
     particleCount: 'Particle Count', speed: 'Speed', friction: 'Friction', turbulence: 'Turbulence',
     mouseForce: 'Mouse Force', interaction: 'Interaction', mouseMode: 'Mouse Mode',
-    gameModes: 'Game Modes', painter: '🎨 Painter', sculptor: '🗿 Sculptor', battle: '⚔ Battle',
-    colorWar: '🌈 Color War', exitGame: '✕ Exit Game', cubeControls: 'Cube Controls',
-    cubePattern: 'Pattern', random: 'Random', autoSwitch: 'Auto Switch',
+    gameModes: 'Game Modes', painter: '\uD83C\uDFA8 Painter', sculptor: '\uD83D\uDDFF Sculptor',
+    battle: '\u2694 Battle', colorWar: '\uD83C\uDF08 Color War', exitGame: '\u2715 Exit Game',
+    cubeControls: 'Cube Controls', cubePattern: 'Pattern', random: 'Random', autoSwitch: 'Auto Switch',
     autoInterval: 'Auto Interval (s)', autoSpin: 'Auto Spin', zenOrbit: 'Zen Orbit',
     reflection: 'Reflection', floorGrid: 'Floor Grid', edgeGlow: 'Edge Glow',
-    emissive: 'Emissive', shatter: '💥 Shatter', actions: 'Actions', export4k: '📐 4K Export',
-    exportSvg: '🖼 SVG', exportGlsl: '🔧 GLSL', saveConfig: '💾 Save Config',
-    loadConfig: '📂 Load Config', shortcuts: 'Shortcuts', scPause: 'Pause / Resume',
-    scFull: 'Fullscreen', scScreen: 'Screenshot', scRecord: 'Record', scHelp: 'Help',
+    emissive: 'Emissive', shatter: '\uD83D\uDCA5 Shatter', actions: 'Actions',
+    export4k: '\uD83D\uDCD0 4K Export', exportSvg: '\uD83D\uDDBC SVG', exportGlsl: '\uD83D\uDD27 GLSL',
+    saveConfig: '\uD83D\uDCBE Save Config', loadConfig: '\uD83D\uDCC2 Load Config',
+    shortcuts: 'Shortcuts', scPause: 'Pause / Resume', scFull: 'Fullscreen',
+    scScreen: 'Screenshot', scRecord: 'Record', scHelp: 'Help',
     scPanel: 'Toggle Panel', scLang: 'Language', scMode: 'View Mode', scNextPat: 'Next Pattern',
     helpTitle: 'Welcome to Xoretex Xhaos Cube',
     svgExportTitle: 'SVG Export', glslExportTitle: 'GLSL Approximation',
@@ -54,53 +55,130 @@ const TRANSLATIONS = {
     toastRecStart: 'Recording started', toastRecStop: 'Recording stopped',
     toastScreenshot: 'Screenshot saved', toast4K: '4K screenshot saved',
     toastShatter: 'Shatter!', paused: 'Paused', resumed: 'Resumed',
-    helpStep1Title: '1. View Modes', helpStep1: 'Use the BOTH / 2D Flow / 3D Cube tabs to switch between the particle engine and the 3D cube renderer.',
-    helpStep2Title: '2. Live Formula Injection', helpStep2: 'Type any JavaScript expression into the Formula Code box. Variables: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio. The result steers particle velocity.',
-    helpStep3Title: '3. Layers', helpStep3: 'Add multiple formula layers. Each has its own color, palette, opacity, and weight. Click a layer title to focus it.',
-    helpStep4Title: '4. Force Fields', helpStep4: 'Add attract, repel, vortex, or gravity fields. Drag their markers on the canvas. Enable Pulsate for animated strength.',
-    helpStep5Title: '5. Audio', helpStep5: 'Click Mic to use your microphone or load an audio file. The engine reacts to bass, mid, and high frequencies.',
-    helpStep6Title: '6. Game Modes', helpStep6: 'Try Painter, Sculptor, Battle, or Color War modes. Exit with the Exit Game button.',
-    helpStep7Title: '7. Export', helpStep7: 'Export PNG screenshots, 4K images, SVG paths, GLSL shaders, WebM video, or save/load the full config as JSON.',
+    helpStep1Title: '1. View Modes',
+    helpStep1: 'Use the BOTH / 2D Flow / 3D Cube tabs to switch between the particle engine and the 3D cube renderer.',
+    helpStep2Title: '2. Live Formula Injection',
+    helpStep2: 'Type any JavaScript expression into the Formula Code box. Variables: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio.',
+    helpStep3Title: '3. Layers',
+    helpStep3: 'Add multiple formula layers. Each has its own color, palette, opacity, and weight. Click a layer title to focus it.',
+    helpStep4Title: '4. Force Fields',
+    helpStep4: 'Add attract, repel, vortex, or gravity fields. Drag their markers on the canvas. Enable Pulsate for animated strength.',
+    helpStep5Title: '5. Audio',
+    helpStep5: 'Click Mic to use your microphone or load an audio file. The engine reacts to bass, mid, and high frequencies.',
+    helpStep6Title: '6. Game Modes',
+    helpStep6: 'Try Painter, Sculptor, Battle, or Color War modes. Exit with the Exit Game button.',
+    helpStep7Title: '7. Export',
+    helpStep7: 'Export PNG screenshots, 4K images, SVG paths, GLSL shaders, WebM video, or save/load the full config as JSON.',
   },
   ar: {
-    presets: 'الإعدادات المسبقة', liveInjection: 'الحقن المباشر', formulaCode: 'كود المعادلة',
-    apply: 'تطبيق', valid: 'صالح', invalid: 'غير صالح', snippetLibrary: 'مكتبة المقتطفات',
-    layers: 'الطبقات', addLayer: '+ إضافة طبقة', audio: 'الصوت', microphone: '🎤 ميكروفون',
-    audioFile: '🎵 ملف', stopAudio: '⏹ إيقاف', bpm: 'النبض/د', beat: 'الإيقاع',
-    audioGain: 'كسب الصوت', forceFields: 'حقول القوة', addField: '+ إضافة',
-    pulsate: 'نبض', pulseSpeed: 'سرعة النبض', effects: 'المؤثرات', trailFade: 'تلاشي الأثر',
-    motionBlur: 'ضبابية الحركة', glowBloom: 'توهج / إشعاع', connections: 'التوصيلات',
-    connDist: 'مسافة التوصيل', symmetry: 'التناسق', depth3d: 'وهم العمق ثلاثي الأبعاد',
-    trailShape: 'شكل الأثر', controls: 'عناصر التحكم', particleCount: 'عدد الجسيمات',
-    speed: 'السرعة', friction: 'الاحتكاك', turbulence: 'الاضطراب', mouseForce: 'قوة الماوس',
-    interaction: 'التفاعل', mouseMode: 'وضع الماوس', gameModes: 'أوضاع اللعبة',
-    painter: '🎨 رسام', sculptor: '🗿 نحات', battle: '⚔ معركة', colorWar: '🌈 حرب ألوان',
-    exitGame: '✕ الخروج من اللعبة', cubeControls: 'تحكم المكعب', cubePattern: 'النمط',
-    random: 'عشوائي', autoSwitch: 'تبديل تلقائي', autoInterval: 'فترة التبديل (ث)',
-    autoSpin: 'دوران تلقائي', zenOrbit: 'مدار زن', reflection: 'الانعكاس',
-    floorGrid: 'شبكة الأرضية', edgeGlow: 'توهج الحواف', emissive: 'الإشعاع',
-    shatter: '💥 تحطيم', actions: 'الإجراءات', export4k: '📐 تصدير 4K',
-    exportSvg: '🖼 SVG', exportGlsl: '🔧 GLSL', saveConfig: '💾 حفظ الإعدادات',
-    loadConfig: '📂 تحميل الإعدادات', shortcuts: 'الاختصارات', scPause: 'إيقاف / استئناف',
-    scFull: 'ملء الشاشة', scScreen: 'لقطة شاشة', scRecord: 'تسجيل', scHelp: 'مساعدة',
-    scPanel: 'إظهار/إخفاء اللوحة', scLang: 'اللغة', scMode: 'وضع العرض',
-    scNextPat: 'النمط التالي', helpTitle: 'مرحباً بك في Xoretex Xhaos Cube',
-    svgExportTitle: 'تصدير SVG', glslExportTitle: 'تقريب GLSL',
-    copy: 'نسخ', download: 'تحميل', dontShowAgain: 'عدم الإظهار عند البدء',
-    stopRec: 'إيقاف', layerColor: 'اللون', layerPalette: 'اللوحة', layerOpacity: 'الشفافية',
-    layerWeight: 'الوزن', layerEquation: 'المعادلة', removeLayer: 'إزالة',
-    removeField: 'إزالة', noAudio: 'لا مصدر صوتي', toastCopied: 'تم النسخ!',
-    toastSaved: 'تم حفظ الإعدادات!', toastLoaded: 'تم تحميل الإعدادات!',
-    toastRecStart: 'بدأ التسجيل', toastRecStop: 'توقف التسجيل',
-    toastScreenshot: 'تم حفظ الصورة', toast4K: 'تم حفظ صورة 4K',
-    toastShatter: 'تحطيم!', paused: 'متوقف', resumed: 'استُؤنف',
-    helpStep1Title: '١. أوضاع العرض', helpStep1: 'استخدم أزرار BOTH / 2D Flow / 3D Cube للتبديل بين محرك الجسيمات ومحرك المكعب ثلاثي الأبعاد.',
-    helpStep2Title: '٢. الحقن المباشر للمعادلة', helpStep2: 'اكتب أي تعبير JavaScript في خانة كود المعادلة. المتغيرات المتاحة: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio.',
-    helpStep3Title: '٣. الطبقات', helpStep3: 'أضف طبقات معادلة متعددة. لكل طبقة لونها ولوحتها وشفافيتها ووزنها. انقر على عنوان الطبقة لتركيزها.',
-    helpStep4Title: '٤. حقول القوة', helpStep4: 'أضف حقول جذب أو طرد أو دوامة أو جاذبية. اسحب علاماتها على اللوحة. فعّل النبض للقوة المتحركة.',
-    helpStep5Title: '٥. الصوت', helpStep5: 'انقر على الميكروفون لاستخدام الميكروفون أو حمّل ملف صوتي. يتفاعل المحرك مع الترددات العالية والمتوسطة والمنخفضة.',
-    helpStep6Title: '٦. أوضاع اللعبة', helpStep6: 'جرّب أوضاع الرسام والنحات والمعركة وحرب الألوان. اخرج بزر الخروج من اللعبة.',
-    helpStep7Title: '٧. التصدير', helpStep7: 'صدّر صور PNG أو صور 4K أو مسارات SVG أو شيدرز GLSL أو فيديو WebM أو احفظ وحمّل الإعدادات بصيغة JSON.',
+    presets: '\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0645\u0633\u0628\u0642\u0629',
+    liveInjection: '\u0627\u0644\u062D\u0642\u0646 \u0627\u0644\u0645\u0628\u0627\u0634\u0631',
+    formulaCode: '\u0643\u0648\u062F \u0627\u0644\u0645\u0639\u0627\u062F\u0644\u0629',
+    apply: '\u062A\u0637\u0628\u064A\u0642', valid: '\u0635\u0627\u0644\u062D',
+    invalid: '\u063A\u064A\u0631 \u0635\u0627\u0644\u062D',
+    snippetLibrary: '\u0645\u0643\u062A\u0628\u0629 \u0627\u0644\u0645\u0642\u062A\u0637\u0641\u0627\u062A',
+    layers: '\u0627\u0644\u0637\u0628\u0642\u0627\u062A',
+    addLayer: '+ \u0625\u0636\u0627\u0641\u0629 \u0637\u0628\u0642\u0629',
+    audio: '\u0627\u0644\u0635\u0648\u062A',
+    microphone: '\uD83C\uDFA4 \u0645\u064A\u0643\u0631\u0648\u0641\u0648\u0646',
+    audioFile: '\uD83C\uDFB5 \u0645\u0644\u0641',
+    stopAudio: '\u23F9 \u0625\u064A\u0642\u0627\u0641',
+    bpm: '\u0627\u0644\u0646\u0628\u0636/\u062F',
+    beat: '\u0627\u0644\u0625\u064A\u0642\u0627\u0639',
+    audioGain: '\u0643\u0633\u0628 \u0627\u0644\u0635\u0648\u062A',
+    forceFields: '\u062D\u0642\u0648\u0644 \u0627\u0644\u0642\u0648\u0629',
+    addField: '+ \u0625\u0636\u0627\u0641\u0629',
+    pulsate: '\u0646\u0628\u0636',
+    pulseSpeed: '\u0633\u0631\u0639\u0629 \u0627\u0644\u0646\u0628\u0636',
+    effects: '\u0627\u0644\u0645\u0624\u062B\u0631\u0627\u062A',
+    trailFade: '\u062A\u0644\u0627\u0634\u064A \u0627\u0644\u0623\u062B\u0631',
+    motionBlur: '\u0636\u0628\u0627\u0628\u064A\u0629 \u0627\u0644\u062D\u0631\u0643\u0629',
+    glowBloom: '\u062A\u0648\u0647\u062C / \u0625\u0634\u0639\u0627\u0639',
+    connections: '\u0627\u0644\u062A\u0648\u0635\u064A\u0644\u0627\u062A',
+    connDist: '\u0645\u0633\u0627\u0641\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644',
+    symmetry: '\u0627\u0644\u062A\u0646\u0627\u0633\u0642',
+    depth3d: '\u0648\u0647\u0645 \u0627\u0644\u0639\u0645\u0642 \u062B\u0644\u0627\u062B\u064A \u0627\u0644\u0623\u0628\u0639\u0627\u062F',
+    trailShape: '\u0634\u0643\u0644 \u0627\u0644\u0623\u062B\u0631',
+    controls: '\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u062A\u062D\u0643\u0645',
+    particleCount: '\u0639\u062F\u062F \u0627\u0644\u062C\u0633\u064A\u0645\u0627\u062A',
+    speed: '\u0627\u0644\u0633\u0631\u0639\u0629',
+    friction: '\u0627\u0644\u0627\u062D\u062A\u0643\u0627\u0643',
+    turbulence: '\u0627\u0644\u0627\u0636\u0637\u0631\u0627\u0628',
+    mouseForce: '\u0642\u0648\u0629 \u0627\u0644\u0645\u0627\u0648\u0633',
+    interaction: '\u0627\u0644\u062A\u0641\u0627\u0639\u0644',
+    mouseMode: '\u0648\u0636\u0639 \u0627\u0644\u0645\u0627\u0648\u0633',
+    gameModes: '\u0623\u0648\u0636\u0627\u0639 \u0627\u0644\u0644\u0639\u0628\u0629',
+    painter: '\uD83C\uDFA8 \u0631\u0633\u0627\u0645',
+    sculptor: '\uD83D\uDDFF \u0646\u062D\u0627\u062A',
+    battle: '\u2694 \u0645\u0639\u0631\u0643\u0629',
+    colorWar: '\uD83C\uDF08 \u062D\u0631\u0628 \u0623\u0644\u0648\u0627\u0646',
+    exitGame: '\u2715 \u0627\u0644\u062E\u0631\u0648\u062C \u0645\u0646 \u0627\u0644\u0644\u0639\u0628\u0629',
+    cubeControls: '\u062A\u062D\u0643\u0645 \u0627\u0644\u0645\u0643\u0639\u0628',
+    cubePattern: '\u0627\u0644\u0646\u0645\u0637',
+    random: '\u0639\u0634\u0648\u0627\u0626\u064A',
+    autoSwitch: '\u062A\u0628\u062F\u064A\u0644 \u062A\u0644\u0642\u0627\u0626\u064A',
+    autoInterval: '\u0641\u062A\u0631\u0629 \u0627\u0644\u062A\u0628\u062F\u064A\u0644 (\u062B)',
+    autoSpin: '\u062F\u0648\u0631\u0627\u0646 \u062A\u0644\u0642\u0627\u0626\u064A',
+    zenOrbit: '\u0645\u062F\u0627\u0631 \u0632\u0646',
+    reflection: '\u0627\u0644\u0627\u0646\u0639\u0643\u0627\u0633',
+    floorGrid: '\u0634\u0628\u0643\u0629 \u0627\u0644\u0623\u0631\u0636\u064A\u0629',
+    edgeGlow: '\u062A\u0648\u0647\u062C \u0627\u0644\u062D\u0648\u0627\u0641',
+    emissive: '\u0627\u0644\u0625\u0634\u0639\u0627\u0639',
+    shatter: '\uD83D\uDCA5 \u062A\u062D\u0637\u064A\u0645',
+    actions: '\u0627\u0644\u0625\u062C\u0631\u0627\u0621\u0627\u062A',
+    export4k: '\uD83D\uDCD0 \u062A\u0635\u062F\u064A\u0631 4K',
+    exportSvg: '\uD83D\uDDBC SVG',
+    exportGlsl: '\uD83D\uDD27 GLSL',
+    saveConfig: '\uD83D\uDCBE \u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A',
+    loadConfig: '\uD83D\uDCC2 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A',
+    shortcuts: '\u0627\u0644\u0627\u062E\u062A\u0635\u0627\u0631\u0627\u062A',
+    scPause: '\u0625\u064A\u0642\u0627\u0641 / \u0627\u0633\u062A\u0626\u0646\u0627\u0641',
+    scFull: '\u0645\u0644\u0621 \u0627\u0644\u0634\u0627\u0634\u0629',
+    scScreen: '\u0644\u0642\u0637\u0629 \u0634\u0627\u0634\u0629',
+    scRecord: '\u062A\u0633\u062C\u064A\u0644',
+    scHelp: '\u0645\u0633\u0627\u0639\u062F\u0629',
+    scPanel: '\u0625\u0638\u0647\u0627\u0631/\u0625\u062E\u0641\u0627\u0621 \u0627\u0644\u0644\u0648\u062D\u0629',
+    scLang: '\u0627\u0644\u0644\u063A\u0629',
+    scMode: '\u0648\u0636\u0639 \u0627\u0644\u0639\u0631\u0636',
+    scNextPat: '\u0627\u0644\u0646\u0645\u0637 \u0627\u0644\u062A\u0627\u0644\u064A',
+    helpTitle: 'Xoretex Xhaos Cube \u0645\u0631\u062D\u0628\u0627\u064B \u0628\u0643 \u0641\u064A',
+    svgExportTitle: '\u062A\u0635\u062F\u064A\u0631 SVG',
+    glslExportTitle: '\u062A\u0642\u0631\u064A\u0628 GLSL',
+    copy: '\u0646\u0633\u062E', download: '\u062A\u062D\u0645\u064A\u0644',
+    dontShowAgain: '\u0639\u062F\u0645 \u0627\u0644\u0625\u0638\u0647\u0627\u0631 \u0639\u0646\u062F \u0627\u0644\u0628\u062F\u0621',
+    stopRec: '\u0625\u064A\u0642\u0627\u0641',
+    layerColor: '\u0627\u0644\u0644\u0648\u0646',
+    layerPalette: '\u0627\u0644\u0644\u0648\u062D\u0629',
+    layerOpacity: '\u0627\u0644\u0634\u0641\u0627\u0641\u064A\u0629',
+    layerWeight: '\u0627\u0644\u0648\u0632\u0646',
+    layerEquation: '\u0627\u0644\u0645\u0639\u0627\u062F\u0644\u0629',
+    removeLayer: '\u0625\u0632\u0627\u0644\u0629',
+    removeField: '\u0625\u0632\u0627\u0644\u0629',
+    noAudio: '\u0644\u0627 \u0645\u0635\u062F\u0631 \u0635\u0648\u062A\u064A',
+    toastCopied: '\u062A\u0645 \u0627\u0644\u0646\u0633\u062E!',
+    toastSaved: '\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A!',
+    toastLoaded: '\u062A\u0645 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A!',
+    toastRecStart: '\u0628\u062F\u0623 \u0627\u0644\u062A\u0633\u062C\u064A\u0644',
+    toastRecStop: '\u062A\u0648\u0642\u0641 \u0627\u0644\u062A\u0633\u062C\u064A\u0644',
+    toastScreenshot: '\u062A\u0645 \u062D\u0641\u0638 \u0627\u0644\u0635\u0648\u0631\u0629',
+    toast4K: '\u062A\u0645 \u062D\u0641\u0638 \u0635\u0648\u0631\u0629 4K',
+    toastShatter: '\u062A\u062D\u0637\u064A\u0645!',
+    paused: '\u0645\u062A\u0648\u0642\u0641',
+    resumed: '\u0627\u0633\u062A\u064F\u0624\u0646\u0641',
+    helpStep1Title: '\u0661. \u0623\u0648\u0636\u0627\u0639 \u0627\u0644\u0639\u0631\u0636',
+    helpStep1: '\u0627\u0633\u062A\u062E\u062F\u0645 \u0623\u0632\u0631\u0627\u0631 BOTH / 2D Flow / 3D Cube \u0644\u0644\u062A\u0628\u062F\u064A\u0644 \u0628\u064A\u0646 \u0645\u062D\u0631\u0643 \u0627\u0644\u062C\u0633\u064A\u0645\u0627\u062A \u0648\u0645\u062D\u0631\u0643 \u0627\u0644\u0645\u0643\u0639\u0628.',
+    helpStep2Title: '\u0662. \u0627\u0644\u062D\u0642\u0646 \u0627\u0644\u0645\u0628\u0627\u0634\u0631 \u0644\u0644\u0645\u0639\u0627\u062F\u0644\u0629',
+    helpStep2: '\u0627\u0643\u062A\u0628 \u0623\u064A \u062A\u0639\u0628\u064A\u0631 JavaScript \u0641\u064A \u062E\u0627\u0646\u0629 \u0643\u0648\u062F \u0627\u0644\u0645\u0639\u0627\u062F\u0644\u0629. \u0627\u0644\u0645\u062A\u063A\u064A\u0631\u0627\u062A: x, y, t, r, cx, cy, PI, sin, cos, tan, atan2, sqrt, abs, noise, audio.',
+    helpStep3Title: '\u0663. \u0627\u0644\u0637\u0628\u0642\u0627\u062A',
+    helpStep3: '\u0623\u0636\u0641 \u0637\u0628\u0642\u0627\u062A \u0645\u0639\u0627\u062F\u0644\u0629 \u0645\u062A\u0639\u062F\u062F\u0629. \u0644\u0643\u0644 \u0637\u0628\u0642\u0629 \u0644\u0648\u0646\u0647\u0627 \u0648\u0644\u0648\u062D\u062A\u0647\u0627 \u0648\u0634\u0641\u0627\u0641\u064A\u062A\u0647\u0627.',
+    helpStep4Title: '\u0664. \u062D\u0642\u0648\u0644 \u0627\u0644\u0642\u0648\u0629',
+    helpStep4: '\u0623\u0636\u0641 \u062D\u0642\u0648\u0644 \u062C\u0630\u0628 \u0623\u0648 \u0637\u0631\u062F \u0623\u0648 \u062F\u0648\u0627\u0645\u0629 \u0623\u0648 \u062C\u0627\u0630\u0628\u064A\u0629. \u0627\u0633\u062D\u0628 \u0639\u0644\u0627\u0645\u0627\u062A\u0647\u0627 \u0639\u0644\u0649 \u0627\u0644\u0644\u0648\u062D\u0629.',
+    helpStep5Title: '\u0665. \u0627\u0644\u0635\u0648\u062A',
+    helpStep5: '\u0627\u0646\u0642\u0631 \u0639\u0644\u0649 \u0627\u0644\u0645\u064A\u0643\u0631\u0648\u0641\u0648\u0646 \u0623\u0648 \u062D\u0645\u0651\u0644 \u0645\u0644\u0641 \u0635\u0648\u062A\u064A. \u064A\u062A\u0641\u0627\u0639\u0644 \u0627\u0644\u0645\u062D\u0631\u0643 \u0645\u0639 \u0627\u0644\u062A\u0631\u062F\u062F\u0627\u062A.',
+    helpStep6Title: '\u0666. \u0623\u0648\u0636\u0627\u0639 \u0627\u0644\u0644\u0639\u0628\u0629',
+    helpStep6: '\u062C\u0631\u0651\u0628 \u0623\u0648\u0636\u0627\u0639 \u0627\u0644\u0631\u0633\u0627\u0645 \u0648\u0627\u0644\u0646\u062D\u0627\u062A \u0648\u0627\u0644\u0645\u0639\u0631\u0643\u0629 \u0648\u062D\u0631\u0628 \u0627\u0644\u0623\u0644\u0648\u0627\u0646.',
+    helpStep7Title: '\u0667. \u0627\u0644\u062A\u0635\u062F\u064A\u0631',
+    helpStep7: '\u0635\u062F\u0651\u0631 \u0635\u0648\u0631 PNG \u0623\u0648 4K \u0623\u0648 SVG \u0623\u0648 GLSL \u0623\u0648 \u0641\u064A\u062F\u064A\u0648 WebM \u0623\u0648 \u0627\u062D\u0641\u0638 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A.',
   }
 };
 
@@ -115,17 +193,24 @@ function applyLocalization() {
   const html = document.documentElement;
   html.setAttribute('lang', currentLang);
   html.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
-  document.querySelectorAll('[data-i18n]').forEach(el => {
-    const key = el.getAttribute('data-i18n');
-    const val = t(key);
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.getAttribute('data-i18n');
+    var val = t(key);
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
       el.placeholder = val;
     } else {
-      el.textContent = val;
+      // preserve child input elements (for label wrapping file inputs)
+      var childInput = el.querySelector('input[type="file"]');
+      if (childInput) {
+        el.childNodes.forEach(function(n) { if (n.nodeType === 3) n.textContent = ''; });
+        el.insertBefore(document.createTextNode(val), childInput);
+      } else {
+        el.textContent = val;
+      }
     }
   });
-  const langBtn = document.getElementById('btnLang');
-  if (langBtn) langBtn.textContent = currentLang === 'en' ? 'عر' : 'EN';
+  var langBtn = document.getElementById('btnLang');
+  if (langBtn) langBtn.textContent = currentLang === 'en' ? '\u0639\u0631' : 'EN';
   buildHelpModal();
 }
 
@@ -136,22 +221,22 @@ function toggleLang() {
 }
 
 // ============================================================
-// NOISE UTILITY (simple value noise)
+// NOISE UTILITY
 // ============================================================
-const _noiseTable = new Float32Array(512);
+var _noiseTable = new Float32Array(512);
 (function initNoise() {
-  for (let i = 0; i < 256; i++) _noiseTable[i] = _noiseTable[i + 256] = Math.random();
+  for (var i = 0; i < 256; i++) _noiseTable[i] = _noiseTable[i + 256] = Math.random();
 })();
 
 function noise2D(x, y) {
-  const xi = Math.floor(x) & 255;
-  const yi = Math.floor(y) & 255;
-  const xf = x - Math.floor(x);
-  const yf = y - Math.floor(y);
-  const u = xf * xf * (3 - 2 * xf);
-  const v = yf * yf * (3 - 2 * yf);
-  const a = _noiseTable[xi] + yi;
-  const b = _noiseTable[xi + 1] + yi;
+  var xi = Math.floor(x) & 255;
+  var yi = Math.floor(y) & 255;
+  var xf = x - Math.floor(x);
+  var yf = y - Math.floor(y);
+  var u = xf * xf * (3 - 2 * xf);
+  var v = yf * yf * (3 - 2 * yf);
+  var a = _noiseTable[xi] + yi;
+  var b = _noiseTable[xi + 1] + yi;
   return (
     _noiseTable[a & 255] * (1 - u) * (1 - v) +
     _noiseTable[b & 255] * u * (1 - v) +
@@ -163,7 +248,7 @@ function noise2D(x, y) {
 // ============================================================
 // COLOR PALETTES
 // ============================================================
-const PALETTES = {
+var PALETTES = {
   mono:   ['#00ffc8','#00e0b0','#00c090','#00a070','#00ff99'],
   cool:   ['#00e5ff','#0080ff','#8000ff','#00ffc8','#4040ff'],
   warm:   ['#ff8800','#ff4400','#ffcc00','#ff0044','#ff6600'],
@@ -175,21 +260,21 @@ const PALETTES = {
 };
 
 function getPaletteColor(paletteName, index, total) {
-  const pal = PALETTES[paletteName] || PALETTES.mono;
+  var pal = PALETTES[paletteName] || PALETTES.mono;
   return pal[Math.floor((index / Math.max(total, 1)) * pal.length) % pal.length];
 }
 
 function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return { r, g, b };
+  var r = parseInt(hex.slice(1, 3), 16);
+  var g = parseInt(hex.slice(3, 5), 16);
+  var b = parseInt(hex.slice(5, 7), 16);
+  return { r: r, g: g, b: b };
 }
 
 // ============================================================
 // FORMULA SNIPPETS
 // ============================================================
-const SNIPPETS = [
+var SNIPPETS = [
   { name: 'Swirly Nebula',   code: 'sin(r*0.01-t)*cos(atan2(y-cy,x-cx)+t)*3' },
   { name: 'Grid Wave',       code: 'sin(x*0.04+t)*sin(y*0.04+t)*2' },
   { name: 'Sine Ocean',      code: 'sin(x*0.03+t*1.5)*2+cos(y*0.02-t)*1.5' },
@@ -205,7 +290,7 @@ const SNIPPETS = [
 // ============================================================
 // PRESETS
 // ============================================================
-const PRESETS = [
+var PRESETS = [
   {
     name: 'Nebula Storm',
     config: { particleCount:8000, speed:1.2, friction:0.97, turbulence:0.4, trailFade:0.06 },
@@ -254,9 +339,9 @@ const PRESETS = [
 ];
 
 // ============================================================
-// MAIN ENGINE STATE
+// MAIN ENGINE STATE — EXPOSED GLOBALLY
 // ============================================================
-let ENG = {
+var ENG = {
   running: true,
   viewMode: 'both',
   particles: [],
@@ -300,10 +385,13 @@ let ENG = {
   focusedLayer: -1,
 };
 
+// >>> CRITICAL FIX: expose ENG globally so cube3d.js can read audio data
+window.ENG = ENG;
+
 // Canvas references
-let bgCan, flowCan, glowCan, connCan;
-let bgCtx, flowCtx, glowCtx, connCtx;
-let W = 0, H = 0;
+var bgCan, flowCan, glowCan, connCan;
+var bgCtx, flowCtx, glowCtx, connCtx;
+var W = 0, H = 0;
 
 // ============================================================
 // INIT
@@ -341,7 +429,6 @@ function initEngine2D() {
     ENG.lastTime = performance.now();
     loop();
 
-    // Help modal on first visit
     if (!localStorage.getItem('xoretex_help_seen')) {
       showModal('helpModal');
     }
@@ -354,12 +441,9 @@ function initEngine2D() {
 function resizeCanvases() {
   W = window.innerWidth;
   H = window.innerHeight;
-  [bgCan, flowCan, glowCan, connCan].forEach(c => {
+  [bgCan, flowCan, glowCan, connCan].forEach(function(c) {
     if (c) { c.width = W; c.height = H; }
   });
-  const cubeCan = document.getElementById('cubeCan');
-  if (cubeCan) { cubeCan.width = W; cubeCan.height = H; }
-
   if (ENG.paintCanvas) { ENG.paintCanvas.width = W; ENG.paintCanvas.height = H; }
   if (ENG.colorWarCanvas) {
     ENG.colorWarCanvas.width = W;
@@ -376,8 +460,7 @@ function drawBackground() {
   if (!bgCtx) return;
   bgCtx.fillStyle = '#0a0a0f';
   bgCtx.fillRect(0, 0, W, H);
-  // subtle radial glow at center
-  const grd = bgCtx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
+  var grd = bgCtx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.6);
   grd.addColorStop(0, 'rgba(0,60,40,0.12)');
   grd.addColorStop(1, 'rgba(0,0,0,0)');
   bgCtx.fillStyle = grd;
@@ -422,12 +505,12 @@ function compileLayerFn(layer) {
   }
 }
 
-function evalLayer(layer, x, y, t) {
+function evalLayer(layer, x, y, t2) {
   if (!layer.fn || !layer.enabled) return 0;
   try {
-    const r = Math.sqrt((x - W/2) ** 2 + (y - H/2) ** 2);
-    const val = layer.fn(
-      x, y, t, r, W/2, H/2,
+    var r = Math.sqrt((x - W/2) * (x - W/2) + (y - H/2) * (y - H/2));
+    var val = layer.fn(
+      x, y, t2, r, W/2, H/2,
       Math.PI, Math.sin, Math.cos, Math.tan, Math.atan2, Math.sqrt, Math.abs,
       noise2D, ENG.audioData.bass
     );
@@ -437,18 +520,17 @@ function evalLayer(layer, x, y, t) {
   }
 }
 
-// Compile all layers
 function compileAllLayers() {
-  ENG.layers.forEach(l => compileLayerFn(l));
+  ENG.layers.forEach(function(l) { compileLayerFn(l); });
 }
 
 // ============================================================
 // PARTICLE SYSTEM
 // ============================================================
 function createParticle(layerIndex) {
-  const px = Math.random() * W;
-  const py = Math.random() * H;
-  const life = 60 + Math.random() * 200;
+  var px = Math.random() * W;
+  var py = Math.random() * H;
+  var life = 60 + Math.random() * 200;
   return {
     x: px, y: py, px: px, py: py,
     vx: (Math.random() - 0.5) * 0.5,
@@ -465,11 +547,10 @@ function createParticle(layerIndex) {
 
 function spawnParticles() {
   ENG.particles = [];
-  const n = ENG.config.particleCount;
-  const nl = ENG.layers.length || 1;
-  for (let i = 0; i < n; i++) {
-    const li = i % nl;
-    ENG.particles.push(createParticle(li));
+  var n = ENG.config.particleCount;
+  var nl = ENG.layers.length || 1;
+  for (var i = 0; i < n; i++) {
+    ENG.particles.push(createParticle(i % nl));
   }
   compileAllLayers();
 }
@@ -480,7 +561,7 @@ function resetParticle(p) {
   p.px = p.x; p.py = p.y;
   p.vx = (Math.random() - 0.5) * 0.5;
   p.vy = (Math.random() - 0.5) * 0.5;
-  const life = 60 + Math.random() * 200;
+  var life = 60 + Math.random() * 200;
   p.life = life; p.maxLife = life;
   p.palIndex = Math.random();
   p.depth = 0.3 + Math.random() * 0.7;
@@ -490,49 +571,46 @@ function resetParticle(p) {
 // PHYSICS UPDATE
 // ============================================================
 function updateParticles(dt) {
-  const cfg = ENG.config;
-  const speed = cfg.speed * (1 + ENG.audioData.bass * 2);
-  const friction = cfg.friction;
-  const turb = cfg.turbulence;
-  const t = ENG.time;
-  const mf = cfg.mouseForce;
-  const mx = ENG.mouse.x, my = ENG.mouse.y, mDown = ENG.mouse.down;
-  const mouseMode = ENG.mouse.mode;
-  const nl = ENG.layers.length;
-  const dt60 = dt * 60;
+  var cfg = ENG.config;
+  var speed = cfg.speed * (1 + ENG.audioData.bass * 2);
+  var friction = cfg.friction;
+  var turb = cfg.turbulence;
+  var t2 = ENG.time;
+  var mf = cfg.mouseForce;
+  var mx = ENG.mouse.x, my = ENG.mouse.y, mDown = ENG.mouse.down;
+  var mouseMode = ENG.mouse.mode;
+  var nl = ENG.layers.length;
+  var dt60 = dt * 60;
 
-  for (let i = 0, n = ENG.particles.length; i < n; i++) {
-    const p = ENG.particles[i];
+  for (var i = 0, n = ENG.particles.length; i < n; i++) {
+    var p = ENG.particles[i];
     p.life -= dt60 * 0.5;
     if (p.life <= 0) { resetParticle(p); continue; }
 
-    const layer = ENG.layers[p.layerIndex % nl];
+    var layer = ENG.layers[p.layerIndex % nl];
     if (!layer || !layer.enabled) { p.px = p.x; p.py = p.y; continue; }
 
-    // formula force
-    const angle = evalLayer(layer, p.x, p.y, t) * layer.weight;
-    const fa = 0.04 * speed / p.mass;
+    var angle = evalLayer(layer, p.x, p.y, t2) * layer.weight;
+    var fa = 0.04 * speed / p.mass;
     p.vx += Math.cos(angle) * fa;
     p.vy += Math.sin(angle) * fa;
 
-    // turbulence
     if (turb > 0) {
       p.vx += (Math.random() - 0.5) * turb * 0.1;
       p.vy += (Math.random() - 0.5) * turb * 0.1;
     }
 
-    // force fields
-    for (let fi = 0; fi < ENG.forceFields.length; fi++) {
-      const ff = ENG.forceFields[fi];
-      const dx = ff.x - p.x, dy = ff.y - p.y;
-      const d2 = dx * dx + dy * dy;
-      let str = ff.strength;
+    for (var fi = 0; fi < ENG.forceFields.length; fi++) {
+      var ff = ENG.forceFields[fi];
+      var dx = ff.x - p.x, dy = ff.y - p.y;
+      var d2 = dx * dx + dy * dy;
+      var str = ff.strength;
       if (cfg.ffPulse) {
-        str *= (0.5 + 0.5 * Math.sin(t * cfg.pulseSpeed * 2 + fi));
+        str *= (0.5 + 0.5 * Math.sin(t2 * cfg.pulseSpeed * 2 + fi));
       }
       if (d2 < ff.radius * ff.radius && d2 > 1) {
-        const d = Math.sqrt(d2);
-        const f = str / (d * p.mass) * 0.5;
+        var d = Math.sqrt(d2);
+        var f = str / (d * p.mass) * 0.5;
         switch (ff.type) {
           case 'attract': p.vx += dx / d * f; p.vy += dy / d * f; break;
           case 'repel':   p.vx -= dx / d * f; p.vy -= dy / d * f; break;
@@ -542,50 +620,44 @@ function updateParticles(dt) {
       }
     }
 
-    // mouse interaction
     if (mx > -9000) {
-      const dx = mx - p.x, dy = my - p.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < mf * mf && d2 > 1) {
-        const d = Math.sqrt(d2);
-        const f = (mDown ? 2 : 0.5) * mf / (d * p.mass * 100);
+      var dx2 = mx - p.x, dy2 = my - p.y;
+      var d2m = dx2 * dx2 + dy2 * dy2;
+      if (d2m < mf * mf && d2m > 1) {
+        var dm = Math.sqrt(d2m);
+        var fm = (mDown ? 2 : 0.5) * mf / (dm * p.mass * 100);
         switch (mouseMode) {
-          case 'push':    p.vx -= dx / d * f; p.vy -= dy / d * f; break;
-          case 'attract': p.vx += dx / d * f; p.vy += dy / d * f; break;
-          case 'swirl':   p.vx -= dy / d * f; p.vy += dx / d * f; break;
+          case 'push':    p.vx -= dx2 / dm * fm; p.vy -= dy2 / dm * fm; break;
+          case 'attract': p.vx += dx2 / dm * fm; p.vy += dy2 / dm * fm; break;
+          case 'swirl':   p.vx -= dy2 / dm * fm; p.vy += dx2 / dm * fm; break;
           case 'paint':   break;
         }
       }
     }
 
-    // obstacles (sculptor mode)
     if (ENG.gameMode === 'sculptor') {
-      for (let oi = 0; oi < ENG.obstacles.length; oi++) {
-        const ob = ENG.obstacles[oi];
-        const dx = p.x - ob.x, dy = p.y - ob.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < ob.r * ob.r && d2 > 0) {
-          const d = Math.sqrt(d2);
-          p.vx += dx / d * 2; p.vy += dy / d * 2;
+      for (var oi = 0; oi < ENG.obstacles.length; oi++) {
+        var ob = ENG.obstacles[oi];
+        var odx = p.x - ob.x, ody = p.y - ob.y;
+        var od2 = odx * odx + ody * ody;
+        if (od2 < ob.r * ob.r && od2 > 0) {
+          var od = Math.sqrt(od2);
+          p.vx += odx / od * 2; p.vy += ody / od * 2;
         }
       }
     }
 
-    // friction
     p.vx *= Math.pow(friction, dt60);
     p.vy *= Math.pow(friction, dt60);
 
-    // clamp velocity
-    const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-    const maxSpd = 4 * speed;
+    var spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    var maxSpd = 4 * speed;
     if (spd > maxSpd) { p.vx = p.vx / spd * maxSpd; p.vy = p.vy / spd * maxSpd; }
 
-    // update position
     p.px = p.x; p.py = p.y;
     p.x += p.vx * dt60;
     p.y += p.vy * dt60;
 
-    // boundary
     if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) {
       if (p.x < 0) p.x = W; else if (p.x > W) p.x = 0;
       if (p.y < 0) p.y = H; else if (p.y > H) p.y = 0;
@@ -599,66 +671,51 @@ function updateParticles(dt) {
 // ============================================================
 function render2D() {
   if (!flowCtx) return;
-  const cfg = ENG.config;
-  const fade = cfg.trailFade;
+  var cfg = ENG.config;
+  var fade = cfg.trailFade;
 
-  // trail fade
   flowCtx.globalAlpha = fade;
   flowCtx.globalCompositeOperation = 'destination-out';
   flowCtx.fillRect(0, 0, W, H);
   flowCtx.globalCompositeOperation = 'source-over';
   flowCtx.globalAlpha = 1;
 
-  // paint mode canvas
-  if (ENG.gameMode === 'painter' && ENG.paintCtx) {
-    ENG.paintCtx.globalCompositeOperation = 'source-over';
-  }
-
-  // color war canvas
   if (ENG.gameMode === 'colorwar' && ENG.colorWarCtx) {
     renderColorWar();
   }
 
-  const nl = ENG.layers.length;
-  const focL = ENG.focusedLayer;
+  var nl = ENG.layers.length;
+  var focL = ENG.focusedLayer;
 
-  for (let i = 0, n = ENG.particles.length; i < n; i++) {
-    const p = ENG.particles[i];
-    const li = p.layerIndex % nl;
-    const layer = ENG.layers[li];
+  for (var i = 0, n = ENG.particles.length; i < n; i++) {
+    var p = ENG.particles[i];
+    var li = p.layerIndex % nl;
+    var layer = ENG.layers[li];
     if (!layer || !layer.enabled) continue;
 
-    const lifeRatio = p.life / p.maxLife;
-    let alpha = lifeRatio * p.brightness * layer.opacity;
+    var lifeRatio = p.life / p.maxLife;
+    var alpha = lifeRatio * p.brightness * layer.opacity;
 
-    // focus dimming
     if (focL >= 0 && li !== focL) alpha *= 0.08;
-
     if (alpha < 0.005) continue;
 
-    // color from palette
-    const palColor = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
-    const rgb = hexToRgb(palColor);
-
-    // audio glow boost
-    const glowBoost = 1 + ENG.audioData.bass * 0.5;
-
-    // depth scale
-    const dScale = cfg.depth3D ? (0.5 + p.depth * 0.5) : 1;
-    const sz = p.size * dScale * glowBoost;
+    var palColor = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
+    var rgb = hexToRgb(palColor);
+    var glowBoost = 1 + ENG.audioData.bass * 0.5;
+    var dScale = cfg.depth3D ? (0.5 + p.depth * 0.5) : 1;
+    var sz = p.size * dScale * glowBoost;
 
     flowCtx.globalAlpha = alpha;
 
     switch (cfg.trailShape) {
-      case 'dot': {
-        flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+      case 'dot':
+        flowCtx.fillStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
         flowCtx.beginPath();
         flowCtx.arc(p.x, p.y, sz * 0.8, 0, Math.PI * 2);
         flowCtx.fill();
         break;
-      }
-      case 'triangle': {
-        flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+      case 'triangle':
+        flowCtx.fillStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
         flowCtx.beginPath();
         flowCtx.moveTo(p.x, p.y - sz);
         flowCtx.lineTo(p.x - sz * 0.8, p.y + sz * 0.5);
@@ -666,52 +723,50 @@ function render2D() {
         flowCtx.closePath();
         flowCtx.fill();
         break;
-      }
-      case 'glow-dot': {
-        const grd = flowCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 3);
-        grd.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},1)`);
-        grd.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+      case 'glow-dot':
+        var grd = flowCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 3);
+        grd.addColorStop(0, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',1)');
+        grd.addColorStop(1, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0)');
         flowCtx.fillStyle = grd;
         flowCtx.beginPath();
         flowCtx.arc(p.x, p.y, sz * 3, 0, Math.PI * 2);
         flowCtx.fill();
         break;
-      }
       case 'line':
-      default: {
-        const dx = p.x - p.px, dy = p.y - p.py;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 0.1) break;
-        flowCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+      default:
+        var tdx = p.x - p.px, tdy = p.y - p.py;
+        var tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+        if (tlen < 0.1) break;
+        flowCtx.strokeStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
         flowCtx.lineWidth = sz * 0.8;
         flowCtx.beginPath();
         flowCtx.moveTo(p.px, p.py);
         flowCtx.lineTo(p.x, p.y);
         flowCtx.stroke();
         break;
-      }
     }
 
     // symmetry
-    const sym = cfg.symmetry;
+    var sym = cfg.symmetry;
     if (sym >= 2) {
-      const cx2 = W / 2, cy2 = H / 2;
-      const rdx = p.x - cx2, rdy = p.y - cy2;
-      const step = (Math.PI * 2) / sym;
-      for (let s = 1; s < sym; s++) {
-        const ang = step * s;
-        const nx = cx2 + rdx * Math.cos(ang) - rdy * Math.sin(ang);
-        const ny = cy2 + rdx * Math.sin(ang) + rdy * Math.cos(ang);
+      var cx2 = W / 2, cy2 = H / 2;
+      var rdx = p.x - cx2, rdy = p.y - cy2;
+      var step = (Math.PI * 2) / sym;
+      for (var s = 1; s < sym; s++) {
+        var ang = step * s;
+        var cosA = Math.cos(ang), sinA = Math.sin(ang);
+        var nx = cx2 + rdx * cosA - rdy * sinA;
+        var ny = cy2 + rdx * sinA + rdy * cosA;
         flowCtx.beginPath();
         if (cfg.trailShape === 'dot' || cfg.trailShape === 'glow-dot') {
           flowCtx.arc(nx, ny, sz * 0.8, 0, Math.PI * 2);
-          flowCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+          flowCtx.fillStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
           flowCtx.fill();
         } else {
-          const pdx = p.px - cx2, pdy = p.py - cy2;
-          const npx = cx2 + pdx * Math.cos(ang) - pdy * Math.sin(ang);
-          const npy = cy2 + pdx * Math.sin(ang) + pdy * Math.cos(ang);
-          flowCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+          var pdx2 = p.px - cx2, pdy2 = p.py - cy2;
+          var npx = cx2 + pdx2 * cosA - pdy2 * sinA;
+          var npy = cy2 + pdx2 * sinA + pdy2 * cosA;
+          flowCtx.strokeStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
           flowCtx.lineWidth = sz * 0.8;
           flowCtx.moveTo(npx, npy);
           flowCtx.lineTo(nx, ny);
@@ -720,10 +775,10 @@ function render2D() {
       }
     }
 
-    // painter mode persistent trail
+    // painter mode
     if (ENG.gameMode === 'painter' && ENG.paintCtx) {
       ENG.paintCtx.globalAlpha = alpha * 0.3;
-      ENG.paintCtx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+      ENG.paintCtx.fillStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
       ENG.paintCtx.beginPath();
       ENG.paintCtx.arc(p.x, p.y, sz * 1.5, 0, Math.PI * 2);
       ENG.paintCtx.fill();
@@ -732,38 +787,33 @@ function render2D() {
 
   flowCtx.globalAlpha = 1;
 
-  // connections
   if (cfg.connections) renderConnections();
-
-  // glow layer
   if (cfg.glow) renderGlow();
 }
 
 function renderConnections() {
   if (!connCtx) return;
-  const cd = ENG.config.connDist;
-  const cd2 = cd * cd;
+  var cd = ENG.config.connDist;
+  var cd2 = cd * cd;
   connCtx.clearRect(0, 0, W, H);
-  const particles = ENG.particles;
-  const nl = ENG.layers.length;
+  var particles = ENG.particles;
+  var nl = ENG.layers.length;
+  var stride = Math.max(1, Math.floor(particles.length / 500));
 
-  // sample up to 500 particles for performance
-  const stride = Math.max(1, Math.floor(particles.length / 500));
-
-  for (let i = 0; i < particles.length; i += stride) {
-    const pi = particles[i];
-    const layerI = ENG.layers[pi.layerIndex % nl];
+  for (var i = 0; i < particles.length; i += stride) {
+    var pi = particles[i];
+    var layerI = ENG.layers[pi.layerIndex % nl];
     if (!layerI || !layerI.enabled) continue;
-    const rgb = hexToRgb(getPaletteColor(layerI.palette, Math.floor(pi.palIndex * 100), 100));
+    var rgb = hexToRgb(getPaletteColor(layerI.palette, Math.floor(pi.palIndex * 100), 100));
 
-    for (let j = i + stride; j < Math.min(i + 20 * stride, particles.length); j += stride) {
-      const pj = particles[j];
-      const dx = pi.x - pj.x, dy = pi.y - pj.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < cd2) {
-        const alpha = (1 - d2 / cd2) * 0.3;
-        connCtx.globalAlpha = alpha;
-        connCtx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+    for (var j = i + stride; j < Math.min(i + 20 * stride, particles.length); j += stride) {
+      var pj = particles[j];
+      var ddx = pi.x - pj.x, ddy = pi.y - pj.y;
+      var dd2 = ddx * ddx + ddy * ddy;
+      if (dd2 < cd2) {
+        var alp = (1 - dd2 / cd2) * 0.3;
+        connCtx.globalAlpha = alp;
+        connCtx.strokeStyle = 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
         connCtx.lineWidth = 0.5;
         connCtx.beginPath();
         connCtx.moveTo(pi.x, pi.y);
@@ -778,13 +828,14 @@ function renderConnections() {
 function renderGlow() {
   if (!glowCtx) return;
   glowCtx.clearRect(0, 0, W, H);
-  // soft glow pass: composite from flowCan
   glowCtx.globalAlpha = 0.18 + ENG.audioData.bass * 0.1;
   glowCtx.filter = 'blur(8px)';
   glowCtx.drawImage(flowCan, 0, 0);
   glowCtx.filter = 'none';
   glowCtx.globalAlpha = 1;
-}// ============================================================
+}
+
+// ============================================================
 // MAIN ANIMATION LOOP
 // ============================================================
 function loop() {
@@ -793,28 +844,29 @@ function loop() {
     return;
   }
 
-  const now = performance.now();
-  const dt = Math.min((now - ENG.lastTime) / 1000, 0.05);
+  var now = performance.now();
+  var dt = Math.min((now - ENG.lastTime) / 1000, 0.05);
   ENG.lastTime = now;
   ENG.time += dt;
   ENG.frameCount++;
 
-  // FPS
   if (ENG.frameCount % 30 === 0) {
     ENG.fps = Math.round(1 / dt);
-    const fpsDom = document.getElementById('fpsDisplay');
+    var fpsDom = document.getElementById('fpsDisplay');
     if (fpsDom) fpsDom.textContent = 'FPS: ' + ENG.fps;
   }
 
   updateAudio();
-  updateParticles(dt);
-  updateGameMode(dt);
-  render2D();
 
-  // Draw painter canvas on top
-  if (ENG.gameMode === 'painter' && ENG.paintCanvas && flowCtx) {
-    flowCtx.globalAlpha = 1;
-    flowCtx.drawImage(ENG.paintCanvas, 0, 0);
+  // Only update 2D if in both or 2d mode
+  if (ENG.viewMode !== '3d') {
+    updateParticles(dt);
+    updateGameMode(dt);
+    render2D();
+    if (ENG.gameMode === 'painter' && ENG.paintCanvas && flowCtx) {
+      flowCtx.globalAlpha = 1;
+      flowCtx.drawImage(ENG.paintCanvas, 0, 0);
+    }
   }
 
   ENG.animID = requestAnimationFrame(loop);
@@ -823,16 +875,16 @@ function loop() {
 // ============================================================
 // AUDIO SYSTEM
 // ============================================================
-let audioCtx = null, analyser = null, audioSource = null;
-let audioElement = null, micStream = null;
-let beatHistory = [], lastBeat = 0, bpmSamples = [];
+var audioCtx = null, analyser = null, audioSource = null;
+var audioElement = null, micStream = null;
+var beatHistory = [], lastBeat = 0, bpmSamples = [];
 
 function initAudioBars() {
-  const wrap = document.getElementById('audioBarWrap');
+  var wrap = document.getElementById('audioBarWrap');
   if (!wrap) return;
   wrap.innerHTML = '';
-  for (let i = 0; i < 32; i++) {
-    const bar = document.createElement('div');
+  for (var i = 0; i < 32; i++) {
+    var bar = document.createElement('div');
     bar.className = 'aBar';
     bar.style.height = '1px';
     bar.id = 'aBar_' + i;
@@ -846,20 +898,19 @@ function ensureAudioCtx() {
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 64;
     analyser.smoothingTimeConstant = 0.8;
-    analyser.connect(audioCtx.destination);
   }
 }
 
 function startMic() {
   try {
     ensureAudioCtx();
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       micStream = stream;
       if (audioSource) audioSource.disconnect();
       audioSource = audioCtx.createMediaStreamSource(stream);
       audioSource.connect(analyser);
       showToast(t('microphone'));
-    }).catch(err => {
+    }).catch(function(err) {
       showToast('Mic denied: ' + err.message);
     });
   } catch (e) {
@@ -868,10 +919,10 @@ function startMic() {
 }
 
 function stopAudio() {
-  if (micStream) { micStream.getTracks().forEach(tr => tr.stop()); micStream = null; }
+  if (micStream) { micStream.getTracks().forEach(function(tr) { tr.stop(); }); micStream = null; }
   if (audioSource) { try { audioSource.disconnect(); } catch(e){} audioSource = null; }
   if (audioElement) { audioElement.pause(); audioElement = null; }
-  ENG.audioData = { bass:0, mid:0, high:0, spectrum:[], bpm:0, beat:false, gain:1 };
+  ENG.audioData = { bass:0, mid:0, high:0, spectrum:[], bpm:0, beat:false, gain:ENG.audioData.gain };
   showToast(t('stopAudio'));
 }
 
@@ -896,70 +947,76 @@ function startAudioFile(file) {
 
 function updateAudio() {
   if (!analyser) return;
-  const buf = new Uint8Array(analyser.frequencyBinCount);
+  var buf = new Uint8Array(analyser.frequencyBinCount);
   analyser.getByteFrequencyData(buf);
-  const gain = ENG.audioData.gain;
-  const n = buf.length;
-  const spec = [];
-  for (let i = 0; i < Math.min(n, 32); i++) {
+  var gain = ENG.audioData.gain;
+  var n2 = buf.length;
+  var spec = [];
+  for (var i = 0; i < Math.min(n2, 32); i++) {
     spec.push(Math.min(1, (buf[i] / 255) * gain));
   }
   ENG.audioData.spectrum = spec;
 
-  const bass = spec.slice(0, 4).reduce((a, b) => a + b, 0) / 4;
-  const mid  = spec.slice(4, 12).reduce((a, b) => a + b, 0) / 8;
-  const high = spec.slice(12, 24).reduce((a, b) => a + b, 0) / 12;
+  var bass = 0, mid = 0, high = 0;
+  for (var b = 0; b < 4 && b < spec.length; b++) bass += spec[b];
+  bass /= 4;
+  for (var m = 4; m < 12 && m < spec.length; m++) mid += spec[m];
+  mid /= 8;
+  for (var h = 12; h < 24 && h < spec.length; h++) high += spec[h];
+  high /= 12;
 
   ENG.audioData.bass = bass;
   ENG.audioData.mid  = mid;
   ENG.audioData.high = high;
 
-  // beat detection
   beatHistory.push(bass);
   if (beatHistory.length > 43) beatHistory.shift();
-  const avg = beatHistory.reduce((a, b) => a + b, 0) / beatHistory.length;
-  const now = ENG.time;
-  if (bass > avg * 1.5 && bass > 0.3 && now - lastBeat > 0.25) {
+  var avg = 0;
+  for (var a = 0; a < beatHistory.length; a++) avg += beatHistory[a];
+  avg /= beatHistory.length;
+  var now2 = ENG.time;
+  if (bass > avg * 1.5 && bass > 0.3 && now2 - lastBeat > 0.25) {
     ENG.audioData.beat = true;
-    const interval = now - lastBeat;
+    var interval = now2 - lastBeat;
     if (interval < 2) {
       bpmSamples.push(60 / interval);
       if (bpmSamples.length > 8) bpmSamples.shift();
-      ENG.audioData.bpm = Math.round(bpmSamples.reduce((a, b) => a + b, 0) / bpmSamples.length);
+      var bpmSum = 0;
+      for (var bs = 0; bs < bpmSamples.length; bs++) bpmSum += bpmSamples[bs];
+      ENG.audioData.bpm = Math.round(bpmSum / bpmSamples.length);
     }
-    lastBeat = now;
+    lastBeat = now2;
   } else {
     ENG.audioData.beat = false;
   }
 
-  // update UI bars
-  for (let i = 0; i < 32; i++) {
-    const bar = document.getElementById('aBar_' + i);
-    if (bar) bar.style.height = Math.max(1, (spec[i] || 0) * 36) + 'px';
+  for (var bi = 0; bi < 32; bi++) {
+    var barEl = document.getElementById('aBar_' + bi);
+    if (barEl) barEl.style.height = Math.max(1, (spec[bi] || 0) * 36) + 'px';
   }
 
-  const vBass = document.getElementById('valBass');
-  const vMid  = document.getElementById('valMid');
-  const vHigh = document.getElementById('valHigh');
-  const vBPM  = document.getElementById('valBPM');
-  const vBeat = document.getElementById('valBeat');
+  var vBass = document.getElementById('valBass');
+  var vMid  = document.getElementById('valMid');
+  var vHigh = document.getElementById('valHigh');
+  var vBPM  = document.getElementById('valBPM');
+  var vBeat = document.getElementById('valBeat');
   if (vBass) vBass.textContent = bass.toFixed(2);
   if (vMid)  vMid.textContent  = mid.toFixed(2);
   if (vHigh) vHigh.textContent = high.toFixed(2);
   if (vBPM)  vBPM.textContent  = ENG.audioData.bpm || '--';
-  if (vBeat) vBeat.textContent  = ENG.audioData.beat ? '●' : '—';
+  if (vBeat) vBeat.textContent  = ENG.audioData.beat ? '\u25CF' : '\u2014';
 }
 
 // ============================================================
 // FORCE FIELDS
 // ============================================================
-const FF_COLORS = {
+var FF_COLORS = {
   attract: '#00ffc8', repel: '#ff4060',
   vortex: '#ff00ff', gravity: '#ffb800'
 };
 
 function addForceField(type, x, y) {
-  const ff = {
+  var ff = {
     id: Date.now() + Math.random(),
     type: type || 'attract',
     x: x !== undefined ? x : W / 2,
@@ -976,101 +1033,98 @@ function addForceField(type, x, y) {
 }
 
 function createFFMarker(ff) {
-  const layer = document.getElementById('forceFieldLayer');
+  var layer = document.getElementById('forceFieldLayer');
   if (!layer) return;
   if (ff.markerEl) ff.markerEl.remove();
 
-  const el = document.createElement('div');
-  el.style.cssText = `
-    position:absolute;
-    width:28px;height:28px;
-    border-radius:50%;
-    border:2px solid ${ff.color};
-    background:${ff.color}22;
-    box-shadow:0 0 12px ${ff.color};
-    cursor:move;
-    transform:translate(-50%,-50%);
-    display:flex;align-items:center;justify-content:center;
-    font-size:12px;user-select:none;
-    left:${ff.x}px;top:${ff.y}px;
-    z-index:6;
-  `;
-  const icons = { attract:'⊕', repel:'⊖', vortex:'⊛', gravity:'⊕' };
-  el.textContent = icons[ff.type] || '●';
+  var el = document.createElement('div');
+  el.style.cssText =
+    'position:absolute;width:28px;height:28px;border-radius:50%;' +
+    'border:2px solid ' + ff.color + ';background:' + ff.color + '22;' +
+    'box-shadow:0 0 12px ' + ff.color + ';cursor:move;' +
+    'transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;' +
+    'font-size:12px;user-select:none;pointer-events:auto;' +
+    'left:' + ff.x + 'px;top:' + ff.y + 'px;z-index:6;';
+  var icons = { attract:'\u2295', repel:'\u2296', vortex:'\u229B', gravity:'\u2295' };
+  el.textContent = icons[ff.type] || '\u25CF';
   el.title = ff.type;
 
-  let dragging = false, ox = 0, oy = 0;
-  el.addEventListener('mousedown', e => {
+  var dragging = false, ox = 0, oy = 0;
+  el.addEventListener('mousedown', function(e) {
     dragging = true; ox = e.clientX - ff.x; oy = e.clientY - ff.y;
     e.stopPropagation();
   });
-  window.addEventListener('mousemove', e => {
+  window.addEventListener('mousemove', function(e) {
     if (!dragging) return;
     ff.x = e.clientX - ox; ff.y = e.clientY - oy;
     el.style.left = ff.x + 'px'; el.style.top = ff.y + 'px';
   });
-  window.addEventListener('mouseup', () => { dragging = false; });
+  window.addEventListener('mouseup', function() { dragging = false; });
 
-  // touch
-  el.addEventListener('touchstart', e => {
+  el.addEventListener('touchstart', function(e) {
     dragging = true;
-    const t2 = e.touches[0];
-    ox = t2.clientX - ff.x; oy = t2.clientY - ff.y;
+    var t3 = e.touches[0];
+    ox = t3.clientX - ff.x; oy = t3.clientY - ff.y;
     e.preventDefault();
   }, { passive: false });
-  el.addEventListener('touchmove', e => {
+  el.addEventListener('touchmove', function(e) {
     if (!dragging) return;
-    const t2 = e.touches[0];
-    ff.x = t2.clientX - ox; ff.y = t2.clientY - oy;
+    var t3 = e.touches[0];
+    ff.x = t3.clientX - ox; ff.y = t3.clientY - oy;
     el.style.left = ff.x + 'px'; el.style.top = ff.y + 'px';
   });
-  el.addEventListener('touchend', () => { dragging = false; });
+  el.addEventListener('touchend', function() { dragging = false; });
 
   layer.appendChild(el);
   ff.markerEl = el;
 }
 
 function removeForceField(id) {
-  const idx = ENG.forceFields.findIndex(f => f.id === id);
+  var idx = -1;
+  for (var i = 0; i < ENG.forceFields.length; i++) {
+    if (ENG.forceFields[i].id === id) { idx = i; break; }
+  }
   if (idx < 0) return;
-  const ff = ENG.forceFields[idx];
+  var ff = ENG.forceFields[idx];
   if (ff.markerEl) ff.markerEl.remove();
   ENG.forceFields.splice(idx, 1);
   buildFFList();
 }
 
 function buildFFList() {
-  const list = document.getElementById('ffList');
+  var list = document.getElementById('ffList');
   if (!list) return;
   list.innerHTML = '';
-  ENG.forceFields.forEach(ff => {
-    const row = document.createElement('div');
+  ENG.forceFields.forEach(function(ff) {
+    var row = document.createElement('div');
     row.className = 'ffItem';
-    const dot = document.createElement('div');
+    var dot = document.createElement('div');
     dot.className = 'ffDot';
     dot.style.background = ff.color;
     dot.style.boxShadow = '0 0 6px ' + ff.color;
-    const label = document.createElement('span');
+    var label = document.createElement('span');
     label.textContent = ff.type;
     label.style.flex = '1';
 
-    const strLabel = document.createElement('input');
-    strLabel.type = 'range'; strLabel.min = 10; strLabel.max = 200;
-    strLabel.value = ff.strength; strLabel.style.width = '60px';
-    strLabel.addEventListener('input', () => { ff.strength = parseFloat(strLabel.value); });
+    var strSlider = document.createElement('input');
+    strSlider.type = 'range'; strSlider.min = '10'; strSlider.max = '200';
+    strSlider.value = ff.strength; strSlider.style.width = '60px';
+    strSlider.addEventListener('input', function() { ff.strength = parseFloat(strSlider.value); });
 
-    const radLabel = document.createElement('input');
-    radLabel.type = 'range'; radLabel.min = 40; radLabel.max = 600;
-    radLabel.value = ff.radius; radLabel.style.width = '60px';
-    radLabel.addEventListener('input', () => { ff.radius = parseFloat(radLabel.value); });
+    var radSlider = document.createElement('input');
+    radSlider.type = 'range'; radSlider.min = '40'; radSlider.max = '600';
+    radSlider.value = ff.radius; radSlider.style.width = '60px';
+    radSlider.addEventListener('input', function() { ff.radius = parseFloat(radSlider.value); });
 
-    const rm = document.createElement('button');
-    rm.className = 'pBtn danger'; rm.textContent = '✕';
+    var rm = document.createElement('button');
+    rm.className = 'pBtn danger'; rm.textContent = '\u2715';
     rm.style.padding = '2px 6px';
-    rm.addEventListener('click', () => removeForceField(ff.id));
+    (function(ffId) {
+      rm.addEventListener('click', function() { removeForceField(ffId); });
+    })(ff.id);
 
     row.appendChild(dot); row.appendChild(label);
-    row.appendChild(strLabel); row.appendChild(radLabel);
+    row.appendChild(strSlider); row.appendChild(radSlider);
     row.appendChild(rm);
     list.appendChild(row);
   });
@@ -1082,47 +1136,41 @@ function buildFFList() {
 function startGameMode(mode) {
   exitGameMode();
   ENG.gameMode = mode;
-
-  const hud = document.getElementById('gameHUD');
-  const hudTitle = document.getElementById('gameHUDTitle');
-  const exitBtn = document.getElementById('btnExitGame');
+  var hud = document.getElementById('gameHUD');
+  var hudTitle = document.getElementById('gameHUDTitle');
+  var exitBtn = document.getElementById('btnExitGame');
   if (hud) hud.style.display = 'block';
   if (exitBtn) exitBtn.style.display = 'inline-flex';
 
   switch (mode) {
-    case 'painter': {
+    case 'painter':
       ENG.paintCanvas = document.createElement('canvas');
       ENG.paintCanvas.width = W; ENG.paintCanvas.height = H;
       ENG.paintCtx = ENG.paintCanvas.getContext('2d');
       if (hudTitle) hudTitle.textContent = t('painter');
       ENG.mouse.mode = 'paint';
       break;
-    }
-    case 'sculptor': {
+    case 'sculptor':
       ENG.obstacles = [];
       if (hudTitle) hudTitle.textContent = t('sculptor');
       renderObstacleLayer();
       break;
-    }
-    case 'battle': {
+    case 'battle':
       if (ENG.layers.length < 2) {
-        // add second layer
-        const l = createLayer('noise(x*0.01+t,y*0.01)*6-3', '#ff00ff', 'neon', 0.8, 0.8);
+        var l = createLayer('noise(x*0.01+t,y*0.01)*6-3', '#ff00ff', 'neon', 0.8, 0.8);
         compileLayerFn(l);
         ENG.layers.push(l);
         buildLayerCards();
       }
       if (hudTitle) hudTitle.textContent = t('battle');
       break;
-    }
-    case 'colorwar': {
+    case 'colorwar':
       ENG.colorWarCanvas = document.createElement('canvas');
       ENG.colorWarCanvas.width = W; ENG.colorWarCanvas.height = H;
       ENG.colorWarCtx = ENG.colorWarCanvas.getContext('2d');
       initColorWar();
       if (hudTitle) hudTitle.textContent = t('colorWar');
       break;
-    }
   }
 }
 
@@ -1132,72 +1180,65 @@ function exitGameMode() {
   ENG.colorWarCanvas = null; ENG.colorWarCtx = null;
   ENG.warOwnership = null;
   ENG.obstacles = [];
-  const hud = document.getElementById('gameHUD');
-  const exitBtn = document.getElementById('btnExitGame');
+  var hud = document.getElementById('gameHUD');
+  var exitBtn = document.getElementById('btnExitGame');
   if (hud) hud.style.display = 'none';
   if (exitBtn) exitBtn.style.display = 'none';
-  const obsLayer = document.getElementById('obstacleLayer');
+  var obsLayer = document.getElementById('obstacleLayer');
   if (obsLayer) obsLayer.innerHTML = '';
-  // reset mouse mode
-  ENG.mouse.mode = document.getElementById('selMouseMode')?.value || 'push';
+  var selMM = document.getElementById('selMouseMode');
+  ENG.mouse.mode = selMM ? selMM.value : 'push';
 }
 
 function updateGameMode(dt) {
   if (!ENG.gameMode) return;
-  const hudInfo = document.getElementById('gameHUDInfo');
-  const hudBar  = document.getElementById('gameHUDBarFill');
+  var hudInfo = document.getElementById('gameHUDInfo');
+  var hudBar  = document.getElementById('gameHUDBarFill');
 
   switch (ENG.gameMode) {
-    case 'battle': {
+    case 'battle':
       if (ENG.layers.length < 2) break;
-      let c0 = 0, c1 = 0;
-      const nl = ENG.layers.length;
-      ENG.particles.forEach(p => {
-        if (p.layerIndex % nl === 0) c0++;
-        else c1++;
-      });
-      const total = c0 + c1 || 1;
-      const pct0 = Math.round(c0 / total * 100);
-      const pct1 = 100 - pct0;
-      if (hudInfo) hudInfo.textContent = `Layer 1: ${pct0}%  vs  Layer 2: ${pct1}%`;
+      var c0 = 0, c1 = 0;
+      var nl = ENG.layers.length;
+      for (var i = 0; i < ENG.particles.length; i++) {
+        if (ENG.particles[i].layerIndex % nl === 0) c0++; else c1++;
+      }
+      var total = c0 + c1 || 1;
+      var pct0 = Math.round(c0 / total * 100);
+      if (hudInfo) hudInfo.textContent = 'Layer 1: ' + pct0 + '%  vs  Layer 2: ' + (100 - pct0) + '%';
       if (hudBar) hudBar.style.width = pct0 + '%';
       break;
-    }
-    case 'colorwar': {
+    case 'colorwar':
       updateColorWar();
       break;
-    }
-    case 'sculptor': {
-      if (hudInfo) hudInfo.textContent = `Obstacles: ${ENG.obstacles.length} — Click canvas to place`;
+    case 'sculptor':
+      if (hudInfo) hudInfo.textContent = 'Obstacles: ' + ENG.obstacles.length + ' \u2014 Click canvas to place';
       break;
-    }
-    case 'painter': {
+    case 'painter':
       if (hudInfo) hudInfo.textContent = 'Painting... move mouse to create trails';
       break;
-    }
   }
 }
 
 function initColorWar() {
-  if (!ENG.colorWarCanvas) return;
+  if (!ENG.colorWarCtx) return;
   ENG.colorWarCtx.clearRect(0, 0, W, H);
 }
 
 function updateColorWar() {
   if (!ENG.colorWarCtx) return;
-  const nl = ENG.layers.length;
+  var nl = ENG.layers.length;
   if (nl < 1) return;
-  // paint soft radial blobs at particle positions
-  for (let i = 0; i < ENG.particles.length; i += 4) {
-    const p = ENG.particles[i];
-    const li = p.layerIndex % nl;
-    const layer = ENG.layers[li];
+  for (var i = 0; i < ENG.particles.length; i += 4) {
+    var p = ENG.particles[i];
+    var li = p.layerIndex % nl;
+    var layer = ENG.layers[li];
     if (!layer || !layer.enabled) continue;
-    const rgb = hexToRgb(getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100));
-    const r2 = 20 + ENG.audioData.bass * 10;
-    const grd = ENG.colorWarCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r2);
-    grd.addColorStop(0, `rgba(${rgb.r},${rgb.g},${rgb.b},0.04)`);
-    grd.addColorStop(1, `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+    var rgb = hexToRgb(getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100));
+    var r2 = 20 + ENG.audioData.bass * 10;
+    var grd = ENG.colorWarCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r2);
+    grd.addColorStop(0, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.04)');
+    grd.addColorStop(1, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0)');
     ENG.colorWarCtx.fillStyle = grd;
     ENG.colorWarCtx.beginPath();
     ENG.colorWarCtx.arc(p.x, p.y, r2, 0, Math.PI * 2);
@@ -1213,29 +1254,22 @@ function renderColorWar() {
 }
 
 function renderObstacleLayer() {
-  const layer = document.getElementById('obstacleLayer');
+  var layer = document.getElementById('obstacleLayer');
   if (!layer) return;
   layer.innerHTML = '';
-  ENG.obstacles.forEach(ob => {
-    const el = document.createElement('div');
-    el.style.cssText = `
-      position:absolute;
-      left:${ob.x - ob.r}px;top:${ob.y - ob.r}px;
-      width:${ob.r * 2}px;height:${ob.r * 2}px;
-      border-radius:50%;
-      background:rgba(255,180,0,0.18);
-      border:1px solid rgba(255,180,0,0.5);
-      pointer-events:none;
-    `;
+  ENG.obstacles.forEach(function(ob) {
+    var el = document.createElement('div');
+    el.style.cssText =
+      'position:absolute;left:' + (ob.x - ob.r) + 'px;top:' + (ob.y - ob.r) + 'px;' +
+      'width:' + (ob.r * 2) + 'px;height:' + (ob.r * 2) + 'px;' +
+      'border-radius:50%;background:rgba(255,180,0,0.18);' +
+      'border:1px solid rgba(255,180,0,0.5);pointer-events:none;';
     layer.appendChild(el);
   });
 }
 
-// ============================================================
-// SCULPTOR CLICK
-// ============================================================
 function placeSculptorObstacle(x, y) {
-  ENG.obstacles.push({ x, y, r: 24 + Math.random() * 20 });
+  ENG.obstacles.push({ x: x, y: y, r: 24 + Math.random() * 20 });
   renderObstacleLayer();
 }
 
@@ -1244,14 +1278,19 @@ function placeSculptorObstacle(x, y) {
 // ============================================================
 function exportScreenshot() {
   try {
-    const offscreen = document.createElement('canvas');
+    var offscreen = document.createElement('canvas');
     offscreen.width = W; offscreen.height = H;
-    const ctx2 = offscreen.getContext('2d');
+    var ctx2 = offscreen.getContext('2d');
     ctx2.drawImage(bgCan, 0, 0);
     ctx2.drawImage(flowCan, 0, 0);
     if (ENG.config.glow) ctx2.drawImage(glowCan, 0, 0);
     if (ENG.config.connections) ctx2.drawImage(connCan, 0, 0);
-    const link = document.createElement('a');
+    // Include cube canvas if visible
+    var cubeCan2 = document.getElementById('cubeCan');
+    if (cubeCan2 && ENG.viewMode !== '2d') {
+      try { ctx2.drawImage(cubeCan2, 0, 0); } catch(e) {}
+    }
+    var link = document.createElement('a');
     link.download = 'xoretex_' + Date.now() + '.png';
     link.href = offscreen.toDataURL('image/png');
     link.click();
@@ -1261,16 +1300,16 @@ function exportScreenshot() {
 
 function export4K() {
   try {
-    const W4 = 3840, H4 = 2160;
-    const offscreen = document.createElement('canvas');
+    var W4 = 3840, H4 = 2160;
+    var offscreen = document.createElement('canvas');
     offscreen.width = W4; offscreen.height = H4;
-    const ctx2 = offscreen.getContext('2d');
+    var ctx2 = offscreen.getContext('2d');
     ctx2.fillStyle = '#0a0a0f';
     ctx2.fillRect(0, 0, W4, H4);
     ctx2.drawImage(bgCan, 0, 0, W4, H4);
     ctx2.drawImage(flowCan, 0, 0, W4, H4);
     if (ENG.config.glow) ctx2.drawImage(glowCan, 0, 0, W4, H4);
-    const link = document.createElement('a');
+    var link = document.createElement('a');
     link.download = 'xoretex_4k_' + Date.now() + '.png';
     link.href = offscreen.toDataURL('image/png');
     link.click();
@@ -1280,22 +1319,22 @@ function export4K() {
 
 function exportSVG() {
   try {
-    const sample = ENG.particles.slice(0, 600);
-    const nl = ENG.layers.length;
-    let svgLines = [];
-    sample.forEach(p => {
-      const li = p.layerIndex % nl;
-      const layer = ENG.layers[li];
+    var sample = ENG.particles.slice(0, 600);
+    var nl = ENG.layers.length;
+    var svgLines = [];
+    sample.forEach(function(p) {
+      var li = p.layerIndex % nl;
+      var layer = ENG.layers[li];
       if (!layer) return;
-      const color = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
-      const dx = p.x - p.px, dy = p.y - p.py;
+      var color = getPaletteColor(layer.palette, Math.floor(p.palIndex * 100), 100);
+      var dx = p.x - p.px, dy = p.y - p.py;
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-        svgLines.push(`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1" fill="${color}" opacity="${(p.brightness * layer.opacity).toFixed(2)}"/>`);
+        svgLines.push('<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="1" fill="' + color + '" opacity="' + (p.brightness * layer.opacity).toFixed(2) + '"/>');
       } else {
-        svgLines.push(`<line x1="${p.px.toFixed(1)}" y1="${p.py.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="${color}" stroke-width="1" opacity="${(p.brightness * layer.opacity).toFixed(2)}"/>`);
+        svgLines.push('<line x1="' + p.px.toFixed(1) + '" y1="' + p.py.toFixed(1) + '" x2="' + p.x.toFixed(1) + '" y2="' + p.y.toFixed(1) + '" stroke="' + color + '" stroke-width="1" opacity="' + (p.brightness * layer.opacity).toFixed(2) + '"/>');
       }
     });
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#0a0a0f">\n${svgLines.join('\n')}\n</svg>`;
+    var svg = '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" style="background:#0a0a0f">\n' + svgLines.join('\n') + '\n</svg>';
     document.getElementById('svgOutput').textContent = svg;
     showModal('svgModal');
     window._svgCache = svg;
@@ -1304,41 +1343,22 @@ function exportSVG() {
 
 function exportGLSL() {
   try {
-    const layer = ENG.layers[0];
-    const eq = layer ? layer.eq : 'sin(x*0.02+t)*cos(y*0.02+t)*2';
-    const glsl = `// Xoretex Xhaos Cube — GLSL Approximation
-// Auto-generated from formula: ${eq}
-// Paste into Shadertoy or any GLSL fragment shader
-
-precision mediump float;
-uniform float iTime;
-uniform vec2 iResolution;
-
-#define PI 3.14159265359
-
-float noise(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy;
-  float x = uv.x;
-  float y = uv.y;
-  float t = iTime;
-  float cx = iResolution.x * 0.5;
-  float cy = iResolution.y * 0.5;
-  float r = length(uv - vec2(cx, cy));
-
-  // Original JS formula adapted to GLSL:
-  // ${eq}
-  float angle = sin(x * 0.02 + t) * cos(y * 0.02 + t) * 2.0;
-
-  vec2 dir = vec2(cos(angle), sin(angle));
-  float intensity = 0.5 + 0.5 * sin(dot(uv * 0.01, dir) * 6.0 + t);
-
-  vec3 col = vec3(0.0, intensity, intensity * 0.7);
-  gl_FragColor = vec4(col, 1.0);
-}`;
+    var layer = ENG.layers[0];
+    var eq = layer ? layer.eq : 'sin(x*0.02+t)*cos(y*0.02+t)*2';
+    var glsl = '// Xoretex Xhaos Cube \u2014 GLSL Approximation\n' +
+      '// Auto-generated from formula: ' + eq + '\n\n' +
+      'precision mediump float;\nuniform float iTime;\nuniform vec2 iResolution;\n\n' +
+      '#define PI 3.14159265359\n\n' +
+      'float noise(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\n\n' +
+      'void main() {\n  vec2 uv = gl_FragCoord.xy;\n  float x = uv.x;\n  float y = uv.y;\n' +
+      '  float t = iTime;\n  float cx = iResolution.x * 0.5;\n  float cy = iResolution.y * 0.5;\n' +
+      '  float r = length(uv - vec2(cx, cy));\n\n' +
+      '  // Original: ' + eq + '\n' +
+      '  float angle = sin(x * 0.02 + t) * cos(y * 0.02 + t) * 2.0;\n\n' +
+      '  vec2 dir = vec2(cos(angle), sin(angle));\n' +
+      '  float intensity = 0.5 + 0.5 * sin(dot(uv * 0.01, dir) * 6.0 + t);\n\n' +
+      '  vec3 col = vec3(0.0, intensity, intensity * 0.7);\n' +
+      '  gl_FragColor = vec4(col, 1.0);\n}';
     document.getElementById('glslOutput').textContent = glsl;
     showModal('glslModal');
     window._glslCache = glsl;
@@ -1347,22 +1367,26 @@ void main() {
 
 function saveConfig() {
   try {
-    const cfg = {
+    var cfg = {
       version: '1.0',
       language: currentLang,
       viewMode: ENG.viewMode,
       config: ENG.config,
-      layers: ENG.layers.map(l => ({
-        eq: l.eq, color: l.color, palette: l.palette,
-        opacity: l.opacity, weight: l.weight, enabled: l.enabled,
-      })),
-      forceFields: ENG.forceFields.map(f => ({
-        type: f.type, x: f.x, y: f.y,
-        strength: f.strength, radius: f.radius,
-      })),
+      layers: ENG.layers.map(function(l) {
+        return {
+          eq: l.eq, color: l.color, palette: l.palette,
+          opacity: l.opacity, weight: l.weight, enabled: l.enabled,
+        };
+      }),
+      forceFields: ENG.forceFields.map(function(f) {
+        return {
+          type: f.type, x: f.x, y: f.y,
+          strength: f.strength, radius: f.radius,
+        };
+      }),
     };
-    const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
+    var blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+    var link = document.createElement('a');
     link.download = 'xoretex_config_' + Date.now() + '.json';
     link.href = URL.createObjectURL(blob);
     link.click();
@@ -1371,24 +1395,24 @@ function saveConfig() {
 }
 
 function loadConfig(file) {
-  const reader = new FileReader();
-  reader.onload = ev => {
+  var reader = new FileReader();
+  reader.onload = function(ev) {
     try {
-      const cfg = JSON.parse(ev.target.result);
+      var cfg = JSON.parse(ev.target.result);
       if (cfg.language) { currentLang = cfg.language; localStorage.setItem('xoretex_lang', currentLang); }
       if (cfg.config) Object.assign(ENG.config, cfg.config);
       if (cfg.layers) {
-        ENG.layers = cfg.layers.map(l => {
-          const layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
+        ENG.layers = cfg.layers.map(function(l) {
+          var layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
           layer.enabled = l.enabled !== undefined ? l.enabled : true;
           compileLayerFn(layer);
           return layer;
         });
       }
       if (cfg.forceFields) {
-        ENG.forceFields.forEach(f => { if (f.markerEl) f.markerEl.remove(); });
+        ENG.forceFields.forEach(function(f) { if (f.markerEl) f.markerEl.remove(); });
         ENG.forceFields = [];
-        cfg.forceFields.forEach(f => addForceField(f.type, f.x, f.y));
+        cfg.forceFields.forEach(function(f) { addForceField(f.type, f.x, f.y); });
       }
       if (cfg.viewMode) setViewMode(cfg.viewMode);
       applyLocalization();
@@ -1407,31 +1431,38 @@ function loadConfig(file) {
 function startRecording() {
   try {
     if (ENG.mediaRecorder) stopRecording();
-    const stream = flowCan.captureStream(30);
+    var stream = flowCan.captureStream(30);
     ENG.recChunks = [];
-    ENG.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-    ENG.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) ENG.recChunks.push(e.data); };
+    var mimeType = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'video/webm';
+    }
+    ENG.mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+    ENG.mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) ENG.recChunks.push(e.data); };
     ENG.mediaRecorder.onstop = saveRecording;
     ENG.mediaRecorder.start(100);
     ENG.recStartTime = Date.now();
 
-    const recBar = document.getElementById('recBar');
+    var recBar = document.getElementById('recBar');
     if (recBar) recBar.classList.add('show');
-    const recBtn = document.getElementById('btnRecord');
+    var recBtn = document.getElementById('btnRecord');
     if (recBtn) recBtn.classList.add('active');
 
-    ENG.recTimerID = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - ENG.recStartTime) / 1000);
-      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-      const ss = String(elapsed % 60).padStart(2, '0');
-      const recTime = document.getElementById('recTime');
+    ENG.recTimerID = setInterval(function() {
+      var elapsed = Math.floor((Date.now() - ENG.recStartTime) / 1000);
+      var mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      var ss = String(elapsed % 60).padStart(2, '0');
+      var recTime = document.getElementById('recTime');
       if (recTime) recTime.textContent = mm + ':' + ss;
-      const fill = document.getElementById('recProgressFill');
+      var fill = document.getElementById('recProgressFill');
       if (fill) fill.style.width = Math.min(100, elapsed / 120 * 100) + '%';
     }, 1000);
 
     showToast(t('toastRecStart'));
-  } catch (e) { reportError('recording failed', e); showToast('Recording not supported in this browser'); }
+  } catch (e) {
+    reportError('recording failed', e);
+    showToast('Recording not supported');
+  }
 }
 
 function stopRecording() {
@@ -1439,17 +1470,17 @@ function stopRecording() {
     ENG.mediaRecorder.stop();
   }
   if (ENG.recTimerID) { clearInterval(ENG.recTimerID); ENG.recTimerID = null; }
-  const recBar = document.getElementById('recBar');
+  var recBar = document.getElementById('recBar');
   if (recBar) recBar.classList.remove('show');
-  const recBtn = document.getElementById('btnRecord');
+  var recBtn = document.getElementById('btnRecord');
   if (recBtn) recBtn.classList.remove('active');
   ENG.mediaRecorder = null;
   showToast(t('toastRecStop'));
 }
 
 function saveRecording() {
-  const blob = new Blob(ENG.recChunks, { type: 'video/webm' });
-  const link = document.createElement('a');
+  var blob = new Blob(ENG.recChunks, { type: 'video/webm' });
+  var link = document.createElement('a');
   link.download = 'xoretex_' + Date.now() + '.webm';
   link.href = URL.createObjectURL(blob);
   link.click();
@@ -1457,31 +1488,56 @@ function saveRecording() {
 }
 
 // ============================================================
-// VIEW MODE
+// VIEW MODE — CRITICAL FIX: pointer-events toggling
 // ============================================================
 function setViewMode(mode) {
   ENG.viewMode = mode;
-  document.querySelectorAll('.modeTab').forEach(btn => {
+  document.querySelectorAll('.modeTab').forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
-  const ids2d = ['flowCan', 'glowCan', 'connCan'];
-  const ids3d = ['cubeCan'];
+  var fCan = document.getElementById('flowCan');
+  var gCan = document.getElementById('glowCan');
+  var coCan = document.getElementById('connCan');
+  var cuCan = document.getElementById('cubeCan');
 
-  ids2d.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = (mode === '3d') ? 'none' : '';
-  });
-  ids3d.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = (mode === '2d') ? 'none' : '';
-  });
+  if (mode === '3d') {
+    // Hide 2D canvases, show cube canvas with pointer events
+    if (fCan)  { fCan.style.display = 'none'; }
+    if (gCan)  { gCan.style.display = 'none'; }
+    if (coCan) { coCan.style.display = 'none'; }
+    if (cuCan) { cuCan.style.display = ''; cuCan.style.pointerEvents = 'auto'; cuCan.style.zIndex = '4'; }
+    // Clear 2D canvases
+    if (flowCtx) flowCtx.clearRect(0, 0, W, H);
+    if (glowCtx) glowCtx.clearRect(0, 0, W, H);
+    if (connCtx) connCtx.clearRect(0, 0, W, H);
+  } else if (mode === '2d') {
+    // Show 2D, hide cube
+    if (fCan)  { fCan.style.display = ''; fCan.style.pointerEvents = 'auto'; }
+    if (gCan)  { gCan.style.display = ''; }
+    if (coCan) { coCan.style.display = ''; }
+    if (cuCan) { cuCan.style.display = 'none'; cuCan.style.pointerEvents = 'none'; }
+  } else {
+    // BOTH mode
+    if (fCan)  { fCan.style.display = ''; fCan.style.pointerEvents = 'auto'; }
+    if (gCan)  { gCan.style.display = ''; }
+    if (coCan) { coCan.style.display = ''; }
+    if (cuCan) { cuCan.style.display = ''; cuCan.style.pointerEvents = 'auto'; cuCan.style.zIndex = '4'; }
+    // In BOTH mode: cube canvas on top receives mouse for rotation,
+    // but we also need 2D mouse. Solution: make cube transparent to mouse
+    // and let flowCan handle 2D interaction — cube uses its own listeners
+    if (cuCan) { cuCan.style.pointerEvents = 'auto'; }
+    // flowCan below cubeCan — disable its pointer events in BOTH
+    if (fCan) { fCan.style.pointerEvents = 'none'; }
+  }
 
-  // notify cube3d if present
+  // Notify cube3d if present
   if (window.setCubeVisible) {
     window.setCubeVisible(mode !== '2d');
   }
-}// ============================================================
+}
+
+// ============================================================
 // PANEL BUILDING
 // ============================================================
 function buildPanel() {
@@ -1494,14 +1550,14 @@ function buildPanel() {
 }
 
 function buildPresetButtons() {
-  const container = document.getElementById('presetBtns');
+  var container = document.getElementById('presetBtns');
   if (!container) return;
   container.innerHTML = '';
-  PRESETS.forEach((preset, idx) => {
-    const btn = document.createElement('button');
+  PRESETS.forEach(function(preset, idx) {
+    var btn = document.createElement('button');
     btn.className = 'pBtn';
     btn.textContent = preset.name;
-    btn.addEventListener('click', () => applyPreset(PRESETS[idx]));
+    btn.addEventListener('click', function() { applyPreset(PRESETS[idx]); });
     container.appendChild(btn);
   });
 }
@@ -1510,8 +1566,8 @@ function applyPreset(preset) {
   if (!preset) return;
   if (preset.config) Object.assign(ENG.config, preset.config);
   if (preset.layers) {
-    ENG.layers = preset.layers.map(l => {
-      const layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
+    ENG.layers = preset.layers.map(function(l) {
+      var layer = createLayer(l.eq, l.color, l.palette, l.opacity, l.weight);
       compileLayerFn(layer);
       return layer;
     });
@@ -1523,16 +1579,16 @@ function applyPreset(preset) {
 }
 
 function buildSnippetGrid() {
-  const grid = document.getElementById('snippetGrid');
+  var grid = document.getElementById('snippetGrid');
   if (!grid) return;
   grid.innerHTML = '';
-  SNIPPETS.forEach(snip => {
-    const btn = document.createElement('button');
+  SNIPPETS.forEach(function(snip) {
+    var btn = document.createElement('button');
     btn.className = 'pBtn snippetBtn';
     btn.textContent = snip.name;
     btn.title = snip.code;
-    btn.addEventListener('click', () => {
-      const ta = document.getElementById('formulaInput');
+    btn.addEventListener('click', function() {
+      var ta = document.getElementById('formulaInput');
       if (ta) ta.value = snip.code;
       applyFormulaToLayer(snip.code);
     });
@@ -1541,99 +1597,106 @@ function buildSnippetGrid() {
 }
 
 function buildLayerCards() {
-  const container = document.getElementById('layerCards');
+  var container = document.getElementById('layerCards');
   if (!container) return;
   container.innerHTML = '';
 
-  ENG.layers.forEach((layer, idx) => {
-    const card = document.createElement('div');
+  ENG.layers.forEach(function(layer, idx) {
+    var card = document.createElement('div');
     card.className = 'layerCard' + (ENG.focusedLayer === idx ? ' focused' : '');
-    card.id = 'layerCard_' + idx;
 
-    // header
-    const header = document.createElement('div');
+    var header = document.createElement('div');
     header.className = 'layerTitle';
     header.style.color = layer.color;
     header.textContent = 'Layer ' + (idx + 1);
-    header.addEventListener('click', () => {
-      ENG.focusedLayer = (ENG.focusedLayer === idx) ? -1 : idx;
-      buildLayerCards();
-    });
+    (function(i) {
+      header.addEventListener('click', function() {
+        ENG.focusedLayer = (ENG.focusedLayer === i) ? -1 : i;
+        buildLayerCards();
+      });
+    })(idx);
 
-    // enabled
-    const enRow = document.createElement('label');
+    var enRow = document.createElement('label');
     enRow.className = 'pCheck';
-    const enChk = document.createElement('input');
+    var enChk = document.createElement('input');
     enChk.type = 'checkbox'; enChk.checked = layer.enabled;
-    enChk.addEventListener('change', () => { layer.enabled = enChk.checked; });
-    const enSpan = document.createElement('span'); enSpan.textContent = 'Enabled';
+    enChk.addEventListener('change', function() { layer.enabled = enChk.checked; });
+    var enSpan = document.createElement('span'); enSpan.textContent = 'Enabled';
     enRow.appendChild(enChk); enRow.appendChild(enSpan);
 
-    // equation
-    const eqLabel = document.createElement('label');
+    var eqLabel = document.createElement('label');
     eqLabel.className = 'pLabel'; eqLabel.textContent = t('layerEquation');
-    const eqTa = document.createElement('textarea');
+    var eqTa = document.createElement('textarea');
     eqTa.className = 'pTextarea'; eqTa.value = layer.eq;
     eqTa.rows = 2; eqTa.spellcheck = false;
-    const eqInd = document.createElement('span');
+    var eqInd = document.createElement('span');
     eqInd.className = 'indicator ' + (layer.valid ? 'valid' : 'invalid');
-
-    eqTa.addEventListener('input', () => {
+    eqTa.addEventListener('input', function() {
       layer.eq = eqTa.value;
-      const ok = compileLayerFn(layer);
+      var ok = compileLayerFn(layer);
       eqInd.className = 'indicator ' + (ok ? 'valid' : 'invalid');
     });
 
-    // color
-    const colRow = document.createElement('div'); colRow.className = 'pRow';
-    const colLabel = document.createElement('span'); colLabel.className = 'pLabel'; colLabel.style.margin = '0'; colLabel.textContent = t('layerColor');
-    const colPick = document.createElement('input'); colPick.type = 'color'; colPick.className = 'pColor'; colPick.value = layer.color;
-    colPick.addEventListener('input', () => { layer.color = colPick.value; buildLayerCards(); });
+    var colRow = document.createElement('div'); colRow.className = 'pRow';
+    var colLabel = document.createElement('span'); colLabel.className = 'pLabel';
+    colLabel.style.margin = '0'; colLabel.textContent = t('layerColor');
+    var colPick = document.createElement('input'); colPick.type = 'color'; colPick.className = 'pColor';
+    colPick.value = layer.color;
+    colPick.addEventListener('input', function() { layer.color = colPick.value; buildLayerCards(); });
 
-    // palette
-    const palLabel = document.createElement('label'); palLabel.className = 'pLabel'; palLabel.textContent = t('layerPalette');
-    const palSel = document.createElement('select'); palSel.className = 'pSelect';
-    Object.keys(PALETTES).forEach(pk => {
-      const op = document.createElement('option'); op.value = pk; op.textContent = pk;
+    var palLabel = document.createElement('label'); palLabel.className = 'pLabel';
+    palLabel.textContent = t('layerPalette');
+    var palSel = document.createElement('select'); palSel.className = 'pSelect';
+    Object.keys(PALETTES).forEach(function(pk) {
+      var op = document.createElement('option'); op.value = pk; op.textContent = pk;
       if (pk === layer.palette) op.selected = true;
       palSel.appendChild(op);
     });
-    palSel.addEventListener('change', () => { layer.palette = palSel.value; });
+    palSel.addEventListener('change', function() { layer.palette = palSel.value; });
 
-    // opacity
-    const opLabel = document.createElement('label'); opLabel.className = 'pLabel'; opLabel.textContent = t('layerOpacity');
-    const opRow = document.createElement('div'); opRow.className = 'pRow';
-    const opSlider = document.createElement('input'); opSlider.type = 'range'; opSlider.className = 'pSlider';
-    opSlider.min = 0; opSlider.max = 1; opSlider.step = 0.05; opSlider.value = layer.opacity;
-    const opVal = document.createElement('span'); opVal.className = 'pVal'; opVal.textContent = layer.opacity.toFixed(2);
-    opSlider.addEventListener('input', () => { layer.opacity = parseFloat(opSlider.value); opVal.textContent = layer.opacity.toFixed(2); });
-
-    // weight
-    const wtLabel = document.createElement('label'); wtLabel.className = 'pLabel'; wtLabel.textContent = t('layerWeight');
-    const wtRow = document.createElement('div'); wtRow.className = 'pRow';
-    const wtSlider = document.createElement('input'); wtSlider.type = 'range'; wtSlider.className = 'pSlider';
-    wtSlider.min = 0.1; wtSlider.max = 3; wtSlider.step = 0.1; wtSlider.value = layer.weight;
-    const wtVal = document.createElement('span'); wtVal.className = 'pVal'; wtVal.textContent = layer.weight.toFixed(1);
-    wtSlider.addEventListener('input', () => { layer.weight = parseFloat(wtSlider.value); wtVal.textContent = layer.weight.toFixed(1); });
-
-    // remove button
-    const rmBtn = document.createElement('button'); rmBtn.className = 'pBtn danger'; rmBtn.textContent = t('removeLayer');
-    rmBtn.addEventListener('click', () => {
-      ENG.layers.splice(idx, 1);
-      if (ENG.focusedLayer >= ENG.layers.length) ENG.focusedLayer = -1;
-      buildLayerCards();
-      reassignParticlesLayers();
+    var opLabel = document.createElement('label'); opLabel.className = 'pLabel';
+    opLabel.textContent = t('layerOpacity');
+    var opRow = document.createElement('div'); opRow.className = 'pRow';
+    var opSlider = document.createElement('input'); opSlider.type = 'range'; opSlider.className = 'pSlider';
+    opSlider.min = '0'; opSlider.max = '1'; opSlider.step = '0.05'; opSlider.value = layer.opacity;
+    var opVal = document.createElement('span'); opVal.className = 'pVal';
+    opVal.textContent = layer.opacity.toFixed(2);
+    opSlider.addEventListener('input', function() {
+      layer.opacity = parseFloat(opSlider.value); opVal.textContent = layer.opacity.toFixed(2);
     });
+
+    var wtLabel = document.createElement('label'); wtLabel.className = 'pLabel';
+    wtLabel.textContent = t('layerWeight');
+    var wtRow = document.createElement('div'); wtRow.className = 'pRow';
+    var wtSlider = document.createElement('input'); wtSlider.type = 'range'; wtSlider.className = 'pSlider';
+    wtSlider.min = '0.1'; wtSlider.max = '3'; wtSlider.step = '0.1'; wtSlider.value = layer.weight;
+    var wtVal = document.createElement('span'); wtVal.className = 'pVal';
+    wtVal.textContent = layer.weight.toFixed(1);
+    wtSlider.addEventListener('input', function() {
+      layer.weight = parseFloat(wtSlider.value); wtVal.textContent = layer.weight.toFixed(1);
+    });
+
+    var rmBtn = document.createElement('button'); rmBtn.className = 'pBtn danger';
+    rmBtn.textContent = t('removeLayer');
+    (function(i2) {
+      rmBtn.addEventListener('click', function() {
+        ENG.layers.splice(i2, 1);
+        if (ENG.focusedLayer >= ENG.layers.length) ENG.focusedLayer = -1;
+        buildLayerCards();
+        reassignParticlesLayers();
+      });
+    })(idx);
 
     opRow.appendChild(opSlider); opRow.appendChild(opVal);
     wtRow.appendChild(wtSlider); wtRow.appendChild(wtVal);
     colRow.appendChild(colLabel); colRow.appendChild(colPick);
 
+    var eqWrap = document.createElement('div'); eqWrap.className = 'pRow';
+    eqWrap.appendChild(eqTa); eqWrap.appendChild(eqInd);
+
     card.appendChild(header);
     card.appendChild(enRow);
     card.appendChild(eqLabel);
-    const eqWrap = document.createElement('div'); eqWrap.className = 'pRow';
-    eqWrap.appendChild(eqTa); eqWrap.appendChild(eqInd);
     card.appendChild(eqWrap);
     card.appendChild(colRow);
     card.appendChild(palLabel); card.appendChild(palSel);
@@ -1646,39 +1709,36 @@ function buildLayerCards() {
 }
 
 function reassignParticlesLayers() {
-  const nl = ENG.layers.length || 1;
-  ENG.particles.forEach((p, i) => { p.layerIndex = i % nl; });
+  var nl = ENG.layers.length || 1;
+  ENG.particles.forEach(function(p, i) { p.layerIndex = i % nl; });
 }
 
 function bindPanelControls() {
-  // Formula apply button
-  const btnApply = document.getElementById('btnApplyFormula');
-  if (btnApply) btnApply.addEventListener('click', () => {
-    const code = document.getElementById('formulaInput')?.value || '';
+  var btnApply = document.getElementById('btnApplyFormula');
+  if (btnApply) btnApply.addEventListener('click', function() {
+    var code = (document.getElementById('formulaInput') || {}).value || '';
     applyFormulaToLayer(code);
   });
 
-  // Formula input realtime
-  const fInput = document.getElementById('formulaInput');
-  if (fInput) fInput.addEventListener('input', () => {
-    const code = fInput.value;
-    const ok = validateFormula(code);
-    const ind = document.getElementById('formulaIndicator');
-    const sta = document.getElementById('formulaStatus');
+  var fInput = document.getElementById('formulaInput');
+  if (fInput) fInput.addEventListener('input', function() {
+    var code = fInput.value;
+    var ok = validateFormula(code);
+    var ind = document.getElementById('formulaIndicator');
+    var sta = document.getElementById('formulaStatus');
     if (ind) ind.className = 'indicator ' + (ok ? 'valid' : 'invalid');
     if (sta) sta.textContent = ok ? t('valid') : t('invalid');
   });
 
-  // Sliders helper
-  function bindSlider(id, valId, cfg, key, decimals) {
-    const slider = document.getElementById(id);
-    const valEl = document.getElementById(valId);
+  function bindSlider(id, valId, obj, key, decimals) {
+    var slider = document.getElementById(id);
+    var valEl = document.getElementById(valId);
     if (!slider) return;
-    slider.addEventListener('input', () => {
-      const v = parseFloat(slider.value);
-      ENG.config[key] = v;
-      if (valEl) valEl.textContent = v.toFixed(decimals || 2);
-      if (key === 'particleCount') { spawnParticles(); }
+    slider.addEventListener('input', function() {
+      var v = parseFloat(slider.value);
+      obj[key] = v;
+      if (valEl) valEl.textContent = decimals === 0 ? String(v) : v.toFixed(decimals || 2);
+      if (key === 'particleCount') spawnParticles();
     });
   }
 
@@ -1692,11 +1752,10 @@ function bindPanelControls() {
   bindSlider('sliderPulseSpeed', 'valPulseSpeed', ENG.config, 'pulseSpeed', 1);
   bindSlider('sliderAudioGain', 'valAudioGain', ENG.audioData, 'gain', 1);
 
-  // Checkboxes
-  function bindCheck(id, cfg, key) {
-    const el = document.getElementById(id);
+  function bindCheck(id, obj, key) {
+    var el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener('change', () => { cfg[key] = el.checked; });
+    el.addEventListener('change', function() { obj[key] = el.checked; });
   }
 
   bindCheck('chkMotionBlur', ENG.config, 'motionBlur');
@@ -1705,116 +1764,112 @@ function bindPanelControls() {
   bindCheck('chkDepth3D', ENG.config, 'depth3D');
   bindCheck('chkFFPulse', ENG.config, 'ffPulse');
 
-  // Selects
-  const selSym = document.getElementById('selSymmetry');
-  if (selSym) selSym.addEventListener('change', () => { ENG.config.symmetry = parseInt(selSym.value); });
+  var selSym = document.getElementById('selSymmetry');
+  if (selSym) selSym.addEventListener('change', function() { ENG.config.symmetry = parseInt(selSym.value); });
 
-  const selTrail = document.getElementById('selTrailShape');
-  if (selTrail) selTrail.addEventListener('change', () => { ENG.config.trailShape = selTrail.value; });
+  var selTrail = document.getElementById('selTrailShape');
+  if (selTrail) selTrail.addEventListener('change', function() { ENG.config.trailShape = selTrail.value; });
 
-  const selMouse = document.getElementById('selMouseMode');
-  if (selMouse) selMouse.addEventListener('change', () => { ENG.mouse.mode = selMouse.value; });
+  var selMouse = document.getElementById('selMouseMode');
+  if (selMouse) selMouse.addEventListener('change', function() { ENG.mouse.mode = selMouse.value; });
 
-  // Layer add button
-  const btnAddLayer = document.getElementById('btnAddLayer');
-  if (btnAddLayer) btnAddLayer.addEventListener('click', () => {
-    const l = createLayer('sin(x*0.02+t)*cos(y*0.02+t)*2', '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0'), 'neon', 1, 1);
+  var btnAddLayer = document.getElementById('btnAddLayer');
+  if (btnAddLayer) btnAddLayer.addEventListener('click', function() {
+    var l = createLayer(
+      'sin(x*0.02+t)*cos(y*0.02+t)*2',
+      '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'),
+      'neon', 1, 1
+    );
     compileLayerFn(l);
     ENG.layers.push(l);
     buildLayerCards();
     reassignParticlesLayers();
   });
 
-  // Force field add
-  const btnAddFF = document.getElementById('btnAddFF');
-  if (btnAddFF) btnAddFF.addEventListener('click', () => {
-    const type = document.getElementById('ffTypeSelect')?.value || 'attract';
+  var btnAddFF = document.getElementById('btnAddFF');
+  if (btnAddFF) btnAddFF.addEventListener('click', function() {
+    var type = (document.getElementById('ffTypeSelect') || {}).value || 'attract';
     addForceField(type);
   });
 
-  // Audio buttons
-  const btnMic = document.getElementById('btnMic');
+  var btnMic = document.getElementById('btnMic');
   if (btnMic) btnMic.addEventListener('click', startMic);
 
-  const btnAudioStop = document.getElementById('btnAudioStop');
+  var btnAudioStop = document.getElementById('btnAudioStop');
   if (btnAudioStop) btnAudioStop.addEventListener('click', stopAudio);
 
-  const audioFileInput = document.getElementById('audioFileInput');
-  if (audioFileInput) audioFileInput.addEventListener('change', e => {
+  var audioFileInput = document.getElementById('audioFileInput');
+  if (audioFileInput) audioFileInput.addEventListener('change', function(e) {
     if (e.target.files[0]) startAudioFile(e.target.files[0]);
   });
 
-  // Game mode buttons
-  document.querySelectorAll('[data-game]').forEach(btn => {
-    btn.addEventListener('click', () => startGameMode(btn.dataset.game));
+  document.querySelectorAll('[data-game]').forEach(function(btn) {
+    btn.addEventListener('click', function() { startGameMode(btn.dataset.game); });
   });
 
-  const exitGameBtn = document.getElementById('btnExitGame');
+  var exitGameBtn = document.getElementById('btnExitGame');
   if (exitGameBtn) exitGameBtn.addEventListener('click', exitGameMode);
 
-  // Export buttons
-  const btn4K = document.getElementById('btnExport4K');
+  var btn4K = document.getElementById('btnExport4K');
   if (btn4K) btn4K.addEventListener('click', export4K);
 
-  const btnSVG = document.getElementById('btnExportSVG');
+  var btnSVG = document.getElementById('btnExportSVG');
   if (btnSVG) btnSVG.addEventListener('click', exportSVG);
 
-  const btnGLSL = document.getElementById('btnExportGLSL');
+  var btnGLSL = document.getElementById('btnExportGLSL');
   if (btnGLSL) btnGLSL.addEventListener('click', exportGLSL);
 
-  const btnSave = document.getElementById('btnSaveConfig');
+  var btnSave = document.getElementById('btnSaveConfig');
   if (btnSave) btnSave.addEventListener('click', saveConfig);
 
-  const loadInput = document.getElementById('loadConfigInput');
-  if (loadInput) loadInput.addEventListener('change', e => {
+  var loadInput = document.getElementById('loadConfigInput');
+  if (loadInput) loadInput.addEventListener('change', function(e) {
     if (e.target.files[0]) loadConfig(e.target.files[0]);
   });
 
-  // SVG modal actions
-  const btnSvgCopy = document.getElementById('btnSvgCopy');
-  if (btnSvgCopy) btnSvgCopy.addEventListener('click', () => {
-    if (window._svgCache) { navigator.clipboard.writeText(window._svgCache).then(() => showToast(t('toastCopied'))); }
+  var btnSvgCopy = document.getElementById('btnSvgCopy');
+  if (btnSvgCopy) btnSvgCopy.addEventListener('click', function() {
+    if (window._svgCache) navigator.clipboard.writeText(window._svgCache).then(function() { showToast(t('toastCopied')); });
   });
-  const btnSvgDown = document.getElementById('btnSvgDownload');
-  if (btnSvgDown) btnSvgDown.addEventListener('click', () => {
+  var btnSvgDown = document.getElementById('btnSvgDownload');
+  if (btnSvgDown) btnSvgDown.addEventListener('click', function() {
     if (!window._svgCache) return;
-    const blob = new Blob([window._svgCache], { type: 'image/svg+xml' });
-    const link = document.createElement('a');
+    var blob = new Blob([window._svgCache], { type: 'image/svg+xml' });
+    var link = document.createElement('a');
     link.download = 'xoretex_' + Date.now() + '.svg';
     link.href = URL.createObjectURL(blob);
     link.click();
   });
 
-  // GLSL modal actions
-  const btnGlslCopy = document.getElementById('btnGlslCopy');
-  if (btnGlslCopy) btnGlslCopy.addEventListener('click', () => {
-    if (window._glslCache) { navigator.clipboard.writeText(window._glslCache).then(() => showToast(t('toastCopied'))); }
+  var btnGlslCopy = document.getElementById('btnGlslCopy');
+  if (btnGlslCopy) btnGlslCopy.addEventListener('click', function() {
+    if (window._glslCache) navigator.clipboard.writeText(window._glslCache).then(function() { showToast(t('toastCopied')); });
   });
 
-  // Modal closes
-  document.getElementById('helpClose')?.addEventListener('click', () => hideModal('helpModal'));
-  document.getElementById('svgClose')?.addEventListener('click', () => hideModal('svgModal'));
-  document.getElementById('glslClose')?.addEventListener('click', () => hideModal('glslModal'));
+  var helpCloseBtn = document.getElementById('helpClose');
+  if (helpCloseBtn) helpCloseBtn.addEventListener('click', function() { hideModal('helpModal'); });
+  var svgCloseBtn = document.getElementById('svgClose');
+  if (svgCloseBtn) svgCloseBtn.addEventListener('click', function() { hideModal('svgModal'); });
+  var glslCloseBtn = document.getElementById('glslClose');
+  if (glslCloseBtn) glslCloseBtn.addEventListener('click', function() { hideModal('glslModal'); });
 
-  // Help dont show
-  const helpDontChk = document.getElementById('helpDontShowChk');
-  if (helpDontChk) helpDontChk.addEventListener('change', () => {
+  var helpDontChk = document.getElementById('helpDontShowChk');
+  if (helpDontChk) helpDontChk.addEventListener('change', function() {
     if (helpDontChk.checked) localStorage.setItem('xoretex_help_seen', '1');
     else localStorage.removeItem('xoretex_help_seen');
   });
 
-  // Recording
-  const btnRecStop = document.getElementById('btnRecStop');
+  var btnRecStop = document.getElementById('btnRecStop');
   if (btnRecStop) btnRecStop.addEventListener('click', stopRecording);
 }
 
 function bindSectionToggles() {
-  document.querySelectorAll('.pSecHead').forEach(head => {
-    head.addEventListener('click', () => {
-      const bodyId = head.dataset.sec;
-      const body = document.getElementById(bodyId);
+  document.querySelectorAll('.pSecHead').forEach(function(head) {
+    head.addEventListener('click', function() {
+      var bodyId = head.dataset.sec;
+      var body = document.getElementById(bodyId);
       if (!body) return;
-      const isOpen = body.classList.contains('open');
+      var isOpen = body.classList.contains('open');
       body.classList.toggle('open', !isOpen);
       head.classList.toggle('open', !isOpen);
     });
@@ -1822,12 +1877,12 @@ function bindSectionToggles() {
 }
 
 function syncControlsFromConfig() {
-  const cfg = ENG.config;
+  var cfg = ENG.config;
   function setSlider(id, valId, val, decimals) {
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     if (el) el.value = val;
-    const ve = document.getElementById(valId);
-    if (ve) ve.textContent = parseFloat(val).toFixed(decimals || 2);
+    var ve = document.getElementById(valId);
+    if (ve) ve.textContent = decimals === 0 ? String(parseFloat(val)) : parseFloat(val).toFixed(decimals || 2);
   }
   setSlider('sliderCount', 'valCount', cfg.particleCount, 0);
   setSlider('sliderSpeed', 'valSpeed', cfg.speed, 1);
@@ -1837,81 +1892,79 @@ function syncControlsFromConfig() {
   setSlider('sliderMouseForce', 'valMouseForce', cfg.mouseForce, 0);
   setSlider('sliderConnDist', 'valConnDist', cfg.connDist, 0);
 
-  const chkGlow = document.getElementById('chkGlow');
+  var chkGlow = document.getElementById('chkGlow');
   if (chkGlow) chkGlow.checked = cfg.glow;
-  const chkConn = document.getElementById('chkConnections');
+  var chkConn = document.getElementById('chkConnections');
   if (chkConn) chkConn.checked = cfg.connections;
-  const chkBlur = document.getElementById('chkMotionBlur');
+  var chkBlur = document.getElementById('chkMotionBlur');
   if (chkBlur) chkBlur.checked = cfg.motionBlur;
-  const chkDepth = document.getElementById('chkDepth3D');
+  var chkDepth = document.getElementById('chkDepth3D');
   if (chkDepth) chkDepth.checked = cfg.depth3D;
-  const selSym = document.getElementById('selSymmetry');
-  if (selSym) selSym.value = cfg.symmetry;
-  const selTrail = document.getElementById('selTrailShape');
-  if (selTrail) selTrail.value = cfg.trailShape;
+  var selSym2 = document.getElementById('selSymmetry');
+  if (selSym2) selSym2.value = cfg.symmetry;
+  var selTrail2 = document.getElementById('selTrailShape');
+  if (selTrail2) selTrail2.value = cfg.trailShape;
 }
 
 // ============================================================
-// TOP BAR BINDINGS
+// TOP BAR
 // ============================================================
 function bindTopBar() {
-  const btnLang = document.getElementById('btnLang');
+  var btnLang = document.getElementById('btnLang');
   if (btnLang) btnLang.addEventListener('click', toggleLang);
 
-  const btnHelp = document.getElementById('btnHelp');
-  if (btnHelp) btnHelp.addEventListener('click', () => showModal('helpModal'));
+  var btnHelp = document.getElementById('btnHelp');
+  if (btnHelp) btnHelp.addEventListener('click', function() { showModal('helpModal'); });
 
-  const btnPause = document.getElementById('btnPause');
+  var btnPause = document.getElementById('btnPause');
   if (btnPause) btnPause.addEventListener('click', togglePause);
 
-  const btnFS = document.getElementById('btnFullscreen');
+  var btnFS = document.getElementById('btnFullscreen');
   if (btnFS) btnFS.addEventListener('click', toggleFullscreen);
 
-  const btnSS = document.getElementById('btnScreenshot');
+  var btnSS = document.getElementById('btnScreenshot');
   if (btnSS) btnSS.addEventListener('click', exportScreenshot);
 
-  const btnRec = document.getElementById('btnRecord');
-  if (btnRec) btnRec.addEventListener('click', () => {
+  var btnRec = document.getElementById('btnRecord');
+  if (btnRec) btnRec.addEventListener('click', function() {
     if (ENG.mediaRecorder) stopRecording(); else startRecording();
   });
 
-  // mode tabs
-  document.querySelectorAll('.modeTab').forEach(btn => {
-    btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
+  document.querySelectorAll('.modeTab').forEach(function(btn) {
+    btn.addEventListener('click', function() { setViewMode(btn.dataset.mode); });
   });
 
-  // panel toggle
-  const panelToggle = document.getElementById('panelToggle');
-  const sidePanel = document.getElementById('sidePanel');
+  var panelToggle = document.getElementById('panelToggle');
+  var sidePanel = document.getElementById('sidePanel');
   if (panelToggle && sidePanel) {
-    panelToggle.addEventListener('click', () => {
-      const collapsed = sidePanel.classList.toggle('collapsed');
+    panelToggle.addEventListener('click', function() {
+      var collapsed = sidePanel.classList.toggle('collapsed');
       panelToggle.classList.toggle('collapsed', collapsed);
-      panelToggle.textContent = collapsed ? '▸' : '◂';
+      panelToggle.textContent = collapsed ? '\u25B8' : '\u25C2';
     });
   }
 }
 
 function togglePause() {
   ENG.running = !ENG.running;
-  const btn = document.getElementById('btnPause');
-  if (btn) btn.textContent = ENG.running ? '⏸' : '▶';
+  var btn = document.getElementById('btnPause');
+  if (btn) btn.textContent = ENG.running ? '\u23F8' : '\u25B6';
   showToast(ENG.running ? t('resumed') : t('paused'));
 }
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(() => {});
+    document.documentElement.requestFullscreen().catch(function() {});
   } else {
-    document.exitFullscreen().catch(() => {});
+    document.exitFullscreen().catch(function() {});
   }
 }
 
 // ============================================================
-// KEYBOARD SHORTCUTS
+// KEYBOARD
 // ============================================================
 function bindKeyboard() {
-  document.addEventListener('keydown', e => {
+  document.addEventListener('keydown', function(e) {
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
     switch (e.code) {
       case 'Space': e.preventDefault(); togglePause(); break;
@@ -1919,15 +1972,14 @@ function bindKeyboard() {
       case 'KeyS': exportScreenshot(); break;
       case 'KeyR': if (ENG.mediaRecorder) stopRecording(); else startRecording(); break;
       case 'KeyH': showModal('helpModal'); break;
-      case 'KeyP': {
-        const sidePanel = document.getElementById('sidePanel');
-        const panelToggle = document.getElementById('panelToggle');
-        if (sidePanel) {
-          const c = sidePanel.classList.toggle('collapsed');
-          if (panelToggle) { panelToggle.classList.toggle('collapsed', c); panelToggle.textContent = c ? '▸' : '◂'; }
+      case 'KeyP':
+        var sp = document.getElementById('sidePanel');
+        var pt = document.getElementById('panelToggle');
+        if (sp) {
+          var c = sp.classList.toggle('collapsed');
+          if (pt) { pt.classList.toggle('collapsed', c); pt.textContent = c ? '\u25B8' : '\u25C2'; }
         }
         break;
-      }
       case 'KeyL': toggleLang(); break;
       case 'Digit1': setViewMode('both'); break;
       case 'Digit2': setViewMode('2d'); break;
@@ -1938,73 +1990,74 @@ function bindKeyboard() {
 }
 
 // ============================================================
-// MOUSE & TOUCH
+// MOUSE & TOUCH — FIXED: only active when 2D mode
 // ============================================================
 function bindMouse() {
-  const canvas = flowCan;
-  if (!canvas) return;
-
-  canvas.addEventListener('mousemove', e => {
+  // We listen on window and check viewMode
+  window.addEventListener('mousemove', function(e) {
+    if (ENG.viewMode === '3d') return;
     ENG.mouse.x = e.clientX;
     ENG.mouse.y = e.clientY;
   });
-  canvas.addEventListener('mousedown', e => {
+  window.addEventListener('mousedown', function(e) {
+    if (ENG.viewMode === '3d') return;
+    // Ignore clicks on UI elements
+    if (e.target.closest('#sidePanel') || e.target.closest('#topBar') || e.target.closest('#modeTabs') ||
+        e.target.closest('.modalOverlay') || e.target.closest('#panelToggle')) return;
     ENG.mouse.down = true;
     if (ENG.gameMode === 'sculptor') placeSculptorObstacle(e.clientX, e.clientY);
   });
-  canvas.addEventListener('mouseup', () => { ENG.mouse.down = false; });
-  canvas.addEventListener('mouseleave', () => { ENG.mouse.x = -9999; ENG.mouse.y = -9999; ENG.mouse.down = false; });
+  window.addEventListener('mouseup', function() {
+    ENG.mouse.down = false;
+  });
 }
 
 function bindTouch() {
-  const canvas = flowCan;
-  if (!canvas) return;
-  const ring = document.getElementById('touchRing');
+  var ring = document.getElementById('touchRing');
 
-  canvas.addEventListener('touchstart', e => {
-    e.preventDefault();
-    const t2 = e.touches[0];
-    ENG.mouse.x = t2.clientX; ENG.mouse.y = t2.clientY; ENG.mouse.down = true;
-    if (ring) { ring.style.display = 'block'; ring.style.left = t2.clientX + 'px'; ring.style.top = t2.clientY + 'px'; }
-    if (ENG.gameMode === 'sculptor') placeSculptorObstacle(t2.clientX, t2.clientY);
-  }, { passive: false });
+  window.addEventListener('touchstart', function(e) {
+    if (ENG.viewMode === '3d') return;
+    if (e.target.closest('#sidePanel') || e.target.closest('#topBar') || e.target.closest('#modeTabs') ||
+        e.target.closest('.modalOverlay') || e.target.closest('#panelToggle')) return;
+    var t3 = e.touches[0];
+    ENG.mouse.x = t3.clientX; ENG.mouse.y = t3.clientY; ENG.mouse.down = true;
+    if (ring) { ring.style.display = 'block'; ring.style.left = t3.clientX + 'px'; ring.style.top = t3.clientY + 'px'; }
+    if (ENG.gameMode === 'sculptor') placeSculptorObstacle(t3.clientX, t3.clientY);
+  }, { passive: true });
 
-  canvas.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const t2 = e.touches[0];
-    ENG.mouse.x = t2.clientX; ENG.mouse.y = t2.clientY;
-    if (ring) { ring.style.left = t2.clientX + 'px'; ring.style.top = t2.clientY + 'px'; }
-  }, { passive: false });
+  window.addEventListener('touchmove', function(e) {
+    if (ENG.viewMode === '3d') return;
+    var t3 = e.touches[0];
+    ENG.mouse.x = t3.clientX; ENG.mouse.y = t3.clientY;
+    if (ring) { ring.style.left = t3.clientX + 'px'; ring.style.top = t3.clientY + 'px'; }
+  }, { passive: true });
 
-  canvas.addEventListener('touchend', () => {
+  window.addEventListener('touchend', function() {
     ENG.mouse.down = false; ENG.mouse.x = -9999; ENG.mouse.y = -9999;
     if (ring) ring.style.display = 'none';
   });
 }
 
 // ============================================================
-// MODAL HELPERS
+// MODAL / TOAST HELPERS
 // ============================================================
 function showModal(id) {
-  const el = document.getElementById(id);
+  var el = document.getElementById(id);
   if (el) el.classList.add('show');
 }
 function hideModal(id) {
-  const el = document.getElementById(id);
+  var el = document.getElementById(id);
   if (el) el.classList.remove('show');
 }
 
-// ============================================================
-// TOAST
-// ============================================================
-let toastTimer = null;
+var toastTimer = null;
 function showToast(msg) {
-  const toast = document.getElementById('toast');
+  var toast = document.getElementById('toast');
   if (!toast) return;
   toast.textContent = msg;
   toast.classList.add('show');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+  toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 2500);
 }
 
 // ============================================================
@@ -2019,31 +2072,31 @@ function validateFormula(code) {
 
 function applyFormulaToLayer(code) {
   if (!ENG.layers.length) {
-    const l = createLayer(code, '#00ffc8', 'cool', 1, 1);
+    var l = createLayer(code, '#00ffc8', 'cool', 1, 1);
     compileLayerFn(l);
     ENG.layers.push(l);
     buildLayerCards();
     reassignParticlesLayers();
     return;
   }
-  const fl = ENG.focusedLayer >= 0 && ENG.focusedLayer < ENG.layers.length
+  var fl = ENG.focusedLayer >= 0 && ENG.focusedLayer < ENG.layers.length
     ? ENG.layers[ENG.focusedLayer] : ENG.layers[0];
   fl.eq = code;
-  const ok = compileLayerFn(fl);
-  const ind = document.getElementById('formulaIndicator');
-  const sta = document.getElementById('formulaStatus');
+  var ok = compileLayerFn(fl);
+  var ind = document.getElementById('formulaIndicator');
+  var sta = document.getElementById('formulaStatus');
   if (ind) ind.className = 'indicator ' + (ok ? 'valid' : 'invalid');
   if (sta) sta.textContent = ok ? t('valid') : t('invalid');
   buildLayerCards();
 }
 
 // ============================================================
-// HELP MODAL CONTENT
+// HELP MODAL
 // ============================================================
 function buildHelpModal() {
-  const body = document.getElementById('helpBody');
+  var body = document.getElementById('helpBody');
   if (!body) return;
-  const steps = [
+  var steps = [
     { title: t('helpStep1Title'), text: t('helpStep1') },
     { title: t('helpStep2Title'), text: t('helpStep2') },
     { title: t('helpStep3Title'), text: t('helpStep3') },
@@ -2052,10 +2105,10 @@ function buildHelpModal() {
     { title: t('helpStep6Title'), text: t('helpStep6') },
     { title: t('helpStep7Title'), text: t('helpStep7') },
   ];
-  body.innerHTML = steps.map(s =>
-    `<div class="step"><h3>${s.title}</h3><p>${s.text}</p></div>`
-  ).join('');
-  const titleEl = document.querySelector('#helpModal .modalTitle');
+  body.innerHTML = steps.map(function(s) {
+    return '<div class="step"><h3>' + s.title + '</h3><p>' + s.text + '</p></div>';
+  }).join('');
+  var titleEl = document.querySelector('#helpModal .modalTitle');
   if (titleEl) titleEl.textContent = t('helpTitle');
 }
 
