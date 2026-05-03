@@ -50,6 +50,3 @@ $$F(x,y,t) = 7 \cdot \text{fBm}(w.x, w.y, 6) + \operatorname{atan2}(y-cy, x-cx) 
 ---
 <div align="center">
 **GeoZakhraf Xhaos Engine**
-*Mathematics is the language of nature, we just made it glow.*
-*الرياضيات هي لغة الطبيعة، نحن فقط جعلناها تتوهج.*
-</div>
