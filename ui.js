@@ -2,25 +2,21 @@
  * ═══════════════════════════════════════════════════════════════
  *  GeoZakhraf Xhaos Engine v2.0 — ui.js
  *
- *  Complete UI Controller
- *  ──────────────────────
- *  · Bilingual AR/EN with full RTL support
- *  · 60 preset names in English + Arabic + descriptions
- *  · Preset list with search, tabs, scroll-to-active
- *  · All parameter sliders wired to engines
- *  · POV mode with dedicated exit overlay (touch + click)
- *  · Mobile hamburger menu + backdrop
- *  · Texture mode toggle button
- *  · Sync HUD with live bars + direction arrows + FPS
- *  · Beat indicator with hold frames
- *  · Toast notification queue (info / error / beat)
- *  · Keyboard shortcuts system
- *  · Screenshot capture + download
- *  · Fullscreen toggle
- *  · Shatter VFX overlay
- *  · selectPresetRelative() for arrow key cycling
+ *  Complete UI Controller — POV Exit Button Fix
+ *  ─────────────────────────────────────────────
+ *  KEY CHANGE: POV mode now uses a visible ✕ EXIT POV
+ *  button in the corner instead of a full-screen
+ *  invisible overlay. This allows the user to freely
+ *  drag and rotate the cube inside POV mode without
+ *  accidentally triggering an exit.
  *
- *  Architecture: IIFE Module Pattern
+ *  The button appears via CSS:
+ *    .app.pov-mode .pov-exit-btn { display: flex }
+ *  No JavaScript needed to show/hide it.
+ *
+ *  Both click and touchend are wired with
+ *  stopPropagation() so the touch does not
+ *  reach canvas3d drag handlers.
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -52,9 +48,6 @@ window.UI = (function () {
 
   /* Beat flash hold */
   let beatFlashTimer = 0;
-
-  /* POV exit overlay element */
-  let povExitOverlay = null;
 
   /* Mobile panel elements */
   let mobileMenuBtn  = null;
@@ -197,6 +190,9 @@ window.UI = (function () {
     el.formulaDisplay = document.getElementById('formula-index-display');
     el.brandTag       = document.getElementById('brand-tag');
 
+    /* POV exit button — the fix */
+    el.btnPovExit = document.getElementById('btn-pov-exit');
+
     /* Panel */
     el.panelPresets   = document.getElementById('panel-presets');
     el.btnTogglePanel = document.getElementById('btn-toggle-panel');
@@ -264,61 +260,87 @@ window.UI = (function () {
     el.btnCloseShortcuts = document.getElementById('btn-close-shortcuts');
     el.screenshotFlash   = document.getElementById('screenshot-flash');
 
-    /* Mobile elements */
+    /* Mobile */
     mobileMenuBtn = document.getElementById('btn-mobile-menu');
     panelBackdrop = document.getElementById('panel-backdrop');
   }
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 4 — POV EXIT OVERLAY
-     Created once at init. Sits at z-index 150
-     above everything except overlays.
-     Captures click AND touchend to exit POV.
-     Shows only when POV mode is active.
+     SECTION 4 — POV EXIT BUTTON (THE FIX)
+     Replaces the full-screen invisible overlay.
+     Only the ✕ button exits POV.
+     The rest of the screen remains free for
+     drag-to-rotate interaction on canvas3d.
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  function createPOVExitOverlay() {
-    povExitOverlay = document.createElement('div');
-    povExitOverlay.id = 'pov-exit-overlay';
-    povExitOverlay.setAttribute(
-      'aria-label',
-      'Click or tap anywhere to exit POV mode'
-    );
-    Object.assign(povExitOverlay.style, {
-      position:   'fixed',
-      inset:      '0',
-      zIndex:     '150',
-      cursor:     'pointer',
-      display:    'none',
-      background: 'transparent'
-    });
+  /**
+   * bindPOVExitButton — wire the dedicated exit button.
+   * The button is shown/hidden automatically by CSS:
+   *   .app.pov-mode .pov-exit-btn { display: flex }
+   * JavaScript only handles the click/touch events.
+   */
+  function bindPOVExitButton() {
+    const exitBtn = document.getElementById('btn-pov-exit');
 
-    document.body.appendChild(povExitOverlay);
+    if (!exitBtn) {
+      console.warn(
+        '[UI] #btn-pov-exit not found in DOM. ' +
+        'Make sure it exists in index.html.'
+      );
+      return;
+    }
 
-    /* Mouse click */
-    povExitOverlay.addEventListener('click', () => {
+    /*
+      Mouse click — stopPropagation prevents the click
+      from also being processed by canvas3d handlers.
+    */
+    exitBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
       exitPOV();
     });
 
-    /* Touch tap — preventDefault stops ghost click
-       from also firing on canvas3d beneath */
-    povExitOverlay.addEventListener('touchend', e => {
+    /*
+      Touch end — stopPropagation AND preventDefault.
+      preventDefault stops the ghost click that would
+      fire 300ms later on canvas3d after touchend.
+      stopPropagation prevents cube3d drag handler
+      from receiving the touch event.
+    */
+    exitBtn.addEventListener('touchend', e => {
+      e.stopPropagation();
       e.preventDefault();
       exitPOV();
     }, { passive: false });
+
+    /*
+      Also stop touchstart on the button so cube3d
+      doesn't begin a drag operation when user taps it.
+    */
+    exitBtn.addEventListener('touchstart', e => {
+      e.stopPropagation();
+    }, { passive: true });
+
+    console.info('[UI] POV exit button wired successfully.');
   }
 
-  /** exitPOV — shared logic for all exit paths */
+  /**
+   * exitPOV — shared exit logic.
+   * Called by: exit button · header POV button · ESC key
+   */
   function exitPOV() {
     if (!povActive) return;
     povActive = false;
 
+    /* Restore camera to external position */
     try { Cube3D.setPOV(false); } catch (e) {}
 
+    /* Remove POV class — CSS transitions UI back in */
     const app = document.getElementById('app');
     if (app) app.classList.remove('pov-mode');
 
+    /* Reset header POV button */
     if (el.btnPov) {
       el.btnPov.classList.remove('active');
       el.btnPov.setAttribute('aria-pressed', 'false');
@@ -326,9 +348,12 @@ window.UI = (function () {
         ? '⊙ منظور' : '⊙ POV';
     }
 
-    if (povExitOverlay) {
-      povExitOverlay.style.display = 'none';
-    }
+    /*
+      Note: The .pov-exit-btn hides automatically
+      because .app.pov-mode is removed above.
+      CSS rule: .app.pov-mode .pov-exit-btn { display: flex }
+      No extra JS needed to hide the button.
+    */
 
     showToast(lang === 'ar'
       ? 'خرجت من وضع POV'
@@ -340,8 +365,8 @@ window.UI = (function () {
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 5 — PRESET LIST BUILDER
-     Uses for loop (NOT forEach) to guarantee
-     correct closure capture of index per item.
+     Uses for loop with IIFE closure to guarantee
+     correct index capture per item.
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function buildPresetList(filter) {
@@ -365,7 +390,7 @@ window.UI = (function () {
       const enName = PRESET_NAMES_EN[i].toLowerCase();
       const arName = PRESET_NAMES_AR[i];
 
-      /* Filter: match English, Arabic, or number */
+      /* Filter check */
       if (filter) {
         const mEn  = enName.includes(filter);
         const mAr  = arName.includes(filter);
@@ -386,13 +411,11 @@ window.UI = (function () {
       item.title = PRESET_DESC_EN[i] || '';
       if (i === activeIdx) item.classList.add('active');
 
-      /* Number badge */
       const numSpan = document.createElement('span');
       numSpan.className   = 'preset-num';
       numSpan.textContent = String(i + 1).padStart(2, '0');
       numSpan.setAttribute('aria-hidden', 'true');
 
-      /* Name */
       const nameSpan = document.createElement('span');
       nameSpan.className   = 'preset-name';
       nameSpan.textContent = name;
@@ -401,16 +424,13 @@ window.UI = (function () {
       item.appendChild(nameSpan);
 
       /*
-        CRITICAL FIX: use IIFE to capture `i` safely.
-        forEach does NOT guarantee correct closure.
-        This pattern guarantees capturedIndex is always
-        the correct value when the click fires.
+        IIFE captures `i` correctly for each iteration.
+        Using forEach would NOT guarantee correct closure.
       */
       item.addEventListener('click', (function (capturedIndex) {
         return function handleClick(e) {
           e.stopPropagation();
           selectPreset(capturedIndex);
-          /* Close panel on mobile after selection */
           if (window.innerWidth <= 768) {
             closeMobilePanel();
           }
@@ -420,11 +440,10 @@ window.UI = (function () {
       frag.appendChild(item);
     }
 
-    /* Batch DOM update — single reflow */
+    /* Single DOM operation */
     el.presetList.innerHTML = '';
     el.presetList.appendChild(frag);
 
-    /* Update count badge */
     if (el.panelCount) {
       el.panelCount.textContent =
         filter ? `${visible}/60` : '60';
@@ -433,35 +452,17 @@ window.UI = (function () {
 
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     SECTION 6 — SELECT PRESET (VERIFIED CHAIN)
+     SECTION 6 — SELECT PRESET
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /**
-   * selectPreset — activate formula on Engine2D.
-   * The cube gets it automatically via CanvasTexture.
-   *
-   * Chain:
-   * 1. Clamp index
-   * 2. Engine2D.setPreset() → changes active formula
-   * 3. Engine2D.resetParticles() → clears old trails
-   * 4. Cube3D.setPreset() if in shader overlay mode
-   * 5. Update all UI elements
-   * 6. Rebuild list (highlight new active)
-   * 7. Scroll into view
-   * 8. Toast notification
-   *
-   * @param {number} index  [0..59]
-   */
   function selectPreset(index) {
     const idx = Math.max(0, Math.min(59, index | 0));
 
     console.info(
       `[UI] selectPreset(${idx}) ` +
-      `"${PRESET_NAMES_EN[idx]}" ` +
-      `[tab:${activeTab}]`
+      `"${PRESET_NAMES_EN[idx]}" [tab:${activeTab}]`
     );
 
-    /* Step 1: Update 2D engine — drives the texture */
     activePreset2D = idx;
 
     if (window.Engine2D) {
@@ -471,17 +472,13 @@ window.UI = (function () {
       } catch (e) {
         console.error('[UI] Engine2D.setPreset failed:', e);
       }
-    } else {
-      console.error('[UI] Engine2D not available!');
     }
 
-    /* Step 2: Update 3D shader if in overlay tab */
     if (activeTab === '3d' && window.Cube3D) {
       activePreset3D = idx;
       try { Cube3D.setPreset(idx); } catch (e) {}
     }
 
-    /* Step 3: Update UI elements */
     updateActiveLabel(idx);
 
     if (el.formulaDisplay) {
@@ -489,10 +486,8 @@ window.UI = (function () {
         String(idx + 1).padStart(2, '0');
     }
 
-    /* Step 4: Rebuild list */
     buildPresetList(currentFilter);
 
-    /* Step 5: Scroll active into view */
     requestAnimationFrame(() => {
       if (!el.presetList) return;
       const activeItem = el.presetList
@@ -505,28 +500,18 @@ window.UI = (function () {
       }
     });
 
-    /* Step 6: Toast */
     const name = lang === 'ar'
       ? PRESET_NAMES_AR[idx]
       : PRESET_NAMES_EN[idx];
     showToast(`${String(idx + 1).padStart(2, '0')} · ${name}`);
   }
 
-  /**
-   * selectPresetRelative — cycle by delta.
-   * Called by keyboard arrow keys in main.js.
-   * @param {string} engine '2d' | '3d'
-   * @param {number} delta  +1 or -1
-   * @returns {number} new active index
-   */
   function selectPresetRelative(engine, delta) {
-    const current = activePreset2D;
-    const next    = (current + delta + 60) % 60;
+    const next = (activePreset2D + delta + 60) % 60;
     selectPreset(next);
     return next;
   }
 
-  /** updateActiveLabel — update floating badge */
   function updateActiveLabel(index) {
     const name = lang === 'ar'
       ? PRESET_NAMES_AR[index]
@@ -547,10 +532,9 @@ window.UI = (function () {
       el.activeEngineTag.textContent = engineLabel;
     }
 
-    /* Trigger CSS flash animation */
     if (el.activeLabel) {
       el.activeLabel.classList.remove('flash');
-      void el.activeLabel.offsetWidth; /* force reflow */
+      void el.activeLabel.offsetWidth;
       el.activeLabel.classList.add('flash');
     }
   }
@@ -585,27 +569,19 @@ window.UI = (function () {
       },
       {
         key: 'bloom', dec: 2,
-        fn: v => {
-          if (window.Cube3D) Cube3D.setBloom(v);
-        }
+        fn: v => { if (window.Cube3D) Cube3D.setBloom(v); }
       },
       {
         key: 'rotation', dec: 2,
-        fn: v => {
-          if (window.Cube3D) Cube3D.setParams({ rotation: v });
-        }
+        fn: v => { if (window.Cube3D) Cube3D.setParams({ rotation: v }); }
       },
       {
         key: 'density', dec: 0,
-        fn: v => {
-          if (window.Engine2D) Engine2D.setParams({ density: v });
-        }
+        fn: v => { if (window.Engine2D) Engine2D.setParams({ density: v }); }
       },
       {
         key: 'texOpacity', dec: 2,
-        fn: v => {
-          if (window.Cube3D) Cube3D.setParams({ texOpacity: v });
-        }
+        fn: v => { if (window.Cube3D) Cube3D.setParams({ texOpacity: v }); }
       }
     ];
 
@@ -615,21 +591,15 @@ window.UI = (function () {
 
       s.range.addEventListener('input', () => {
         const v = parseFloat(s.range.value);
-
         if (s.val) {
           s.val.textContent = cfg.dec > 0
             ? v.toFixed(cfg.dec)
             : Math.round(v).toString();
         }
-
         s.range.setAttribute('aria-valuenow', v);
-
-        try { cfg.fn(v); } catch (e) {
-          console.warn('[UI] Slider fn error:', e);
-        }
+        try { cfg.fn(v); } catch (e) {}
       });
 
-      /* Prevent panel scroll while using slider on mobile */
       s.range.addEventListener('touchstart', e => {
         e.stopPropagation();
       }, { passive: true });
@@ -660,7 +630,8 @@ window.UI = (function () {
     if (el.btnPov) {
       el.btnPov.addEventListener('click', () => {
         if (!povActive) {
-          /* Enter POV */
+
+          /* ── ENTER POV ── */
           povActive = true;
 
           try { Cube3D.setPOV(true); } catch (e) {}
@@ -674,20 +645,18 @@ window.UI = (function () {
             ? '⊙ خروج' : '⊙ EXIT';
 
           showToast(lang === 'ar'
-            ? 'وضع POV — اضغط في أي مكان للخروج'
-            : 'POV Mode — tap anywhere to exit');
+            ? 'وضع POV — اسحب للنظر · اضغط ✕ للخروج'
+            : 'POV Mode — drag to look · tap ✕ to exit');
 
-          /* Show exit overlay after 500ms delay.
-             Prevents the enter-click from immediately
-             triggering the exit handler. */
-          setTimeout(() => {
-            if (povExitOverlay && povActive) {
-              povExitOverlay.style.display = 'block';
-            }
-          }, 500);
+          /*
+            The .pov-exit-btn becomes visible automatically
+            via CSS: .app.pov-mode .pov-exit-btn { display:flex }
+            No JavaScript needed here.
+          */
 
         } else {
-          /* Exit via button */
+
+          /* ── EXIT POV via header button ── */
           exitPOV();
         }
       });
@@ -732,13 +701,11 @@ window.UI = (function () {
         if (!window.AudioEngine || !AudioEngine.isSupported()) {
           showToast(lang === 'ar'
             ? 'الصوت غير مدعوم'
-            : 'Audio not supported in this browser',
-            'error');
+            : 'Audio not supported', 'error');
           return;
         }
 
         if (!audioActive) {
-          /* Loading state */
           el.btnAudio.textContent =
             lang === 'ar' ? '⏳ انتظر' : '⏳ WAIT';
           el.btnAudio.disabled = true;
@@ -754,18 +721,16 @@ window.UI = (function () {
               lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
             showToast(lang === 'ar'
               ? 'المايكروفون نشط'
-              : 'Microphone active — audio reactive');
+              : 'Microphone active');
           } else {
             el.btnAudio.textContent =
               lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
             showToast(lang === 'ar'
               ? 'تعذّر الوصول للمايكروفون'
-              : 'Microphone access denied',
-              'error');
+              : 'Microphone access denied', 'error');
           }
 
         } else {
-          /* Stop */
           try { AudioEngine.stop(); } catch (e) {}
           audioActive = false;
           el.btnAudio.classList.remove('active');
@@ -773,8 +738,7 @@ window.UI = (function () {
           el.btnAudio.textContent =
             lang === 'ar' ? '♫ صوت' : '♫ AUDIO';
           showToast(lang === 'ar'
-            ? 'تم إيقاف الصوت'
-            : 'Audio stopped');
+            ? 'تم إيقاف الصوت' : 'Audio stopped');
         }
       });
     }
@@ -805,7 +769,6 @@ window.UI = (function () {
 
   function bindActionButtons() {
 
-    /* Shatter */
     if (el.btnShatter) {
       el.btnShatter.addEventListener('click', () => {
         try { Cube3D.triggerShatter(); } catch (e) {}
@@ -817,13 +780,11 @@ window.UI = (function () {
       });
     }
 
-    /* Randomize */
     if (el.btnRandomize) {
       el.btnRandomize.addEventListener('click', randomizeBoth);
     }
   }
 
-  /** randomizeBoth — pick two different random formulas */
   function randomizeBoth() {
     let i2d = Math.floor(Math.random() * 60);
     let i3d = Math.floor(Math.random() * 60);
@@ -831,11 +792,8 @@ window.UI = (function () {
       i3d = Math.floor(Math.random() * 60);
     }
 
-    try {
-      Engine2D.setPreset(i2d);
-      Engine2D.resetParticles();
-    } catch (e) {}
-
+    try { Engine2D.setPreset(i2d); Engine2D.resetParticles(); }
+    catch (e) {}
     try { Cube3D.setPreset(i3d); } catch (e) {}
 
     activePreset2D = i2d;
@@ -868,7 +826,6 @@ window.UI = (function () {
       openMobilePanel(panelOpen);
     });
 
-    /* Backdrop click closes panel */
     if (panelBackdrop) {
       panelBackdrop.addEventListener('click', () => {
         closeMobilePanel();
@@ -903,16 +860,17 @@ window.UI = (function () {
 
   function bindPanelControls() {
 
-    /* Desktop collapse toggle */
     if (el.btnTogglePanel) {
       el.btnTogglePanel.addEventListener('click', () => {
         panelOpen = !panelOpen;
         if (window.innerWidth <= 768) {
           openMobilePanel(panelOpen);
         } else {
-          el.panelPresets.classList.toggle(
-            'collapsed', !panelOpen
-          );
+          if (el.panelPresets) {
+            el.panelPresets.classList.toggle(
+              'collapsed', !panelOpen
+            );
+          }
         }
         updatePanelToggleIcon();
         el.btnTogglePanel.setAttribute(
@@ -921,7 +879,6 @@ window.UI = (function () {
       });
     }
 
-    /* Tabs */
     if (el.tabBtns) {
       el.tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -945,7 +902,6 @@ window.UI = (function () {
       });
     }
 
-    /* Search */
     if (el.presetSearch) {
       el.presetSearch.addEventListener('input', () => {
         buildPresetList(el.presetSearch.value);
@@ -1003,7 +959,6 @@ window.UI = (function () {
 
   function takeScreenshot() {
     try {
-      /* Flash effect */
       if (el.screenshotFlash) {
         el.screenshotFlash.classList.remove('hidden');
         el.screenshotFlash.classList.add('active');
@@ -1022,14 +977,12 @@ window.UI = (function () {
       link.click();
 
       showToast(lang === 'ar'
-        ? 'تم حفظ اللقطة'
-        : 'Screenshot saved');
+        ? 'تم حفظ اللقطة' : 'Screenshot saved');
 
     } catch (e) {
       console.error('[UI] Screenshot failed:', e);
       showToast(lang === 'ar'
-        ? 'فشل حفظ اللقطة'
-        : 'Screenshot failed', 'error');
+        ? 'فشل حفظ اللقطة' : 'Screenshot failed', 'error');
     }
   }
 
@@ -1049,13 +1002,11 @@ window.UI = (function () {
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function triggerShatterVFX() {
-    /* Red radial flash */
     const overlay     = document.createElement('div');
     overlay.className = 'shatter-overlay';
     document.body.appendChild(overlay);
     setTimeout(() => overlay.remove(), 750);
 
-    /* Pulse shatter button */
     if (el.btnShatter) {
       el.btnShatter.classList.add('beat-active');
       setTimeout(() => {
@@ -1069,12 +1020,6 @@ window.UI = (function () {
      SECTION 14 — TOAST NOTIFICATION SYSTEM
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /**
-   * showToast — queue a brief notification.
-   * @param {string} message
-   * @param {string} type     'info' | 'error' | 'beat'
-   * @param {number} duration ms (default 2000)
-   */
   function showToast(message, type, duration) {
     type     = type     || 'info';
     duration = duration || 2000;
@@ -1100,12 +1045,10 @@ window.UI = (function () {
 
     document.body.appendChild(toast);
 
-    /* Animate in */
     requestAnimationFrame(() => {
       toast.classList.add('toast-visible');
     });
 
-    /* Animate out and process next */
     setTimeout(() => {
       toast.classList.remove('toast-visible');
       toast.classList.add('toast-hiding');
@@ -1128,22 +1071,17 @@ window.UI = (function () {
     html.lang = lang;
     html.dir  = isAr ? 'rtl' : 'ltr';
 
-    /* Language button */
     if (el.btnLang) {
       el.btnLang.textContent = isAr ? 'EN' : 'AR';
       el.btnLang.title = isAr
-        ? 'Switch to English'
-        : 'التبديل إلى العربية';
+        ? 'Switch to English' : 'التبديل إلى العربية';
     }
 
-    /* Brand */
     if (el.brandTag) {
       el.brandTag.textContent = isAr
-        ? 'محرك الفوضى'
-        : 'XHAOS ENGINE';
+        ? 'محرك الفوضى' : 'XHAOS ENGINE';
     }
 
-    /* All data-en / data-ar elements */
     document.querySelectorAll('[data-en]').forEach(elem => {
       const arText = elem.dataset.ar;
       if (arText !== undefined) {
@@ -1151,14 +1089,11 @@ window.UI = (function () {
       }
     });
 
-    /* Search */
     if (el.presetSearch) {
       el.presetSearch.placeholder = isAr
-        ? 'البحث عن صيغة…'
-        : 'Search formula…';
+        ? 'البحث عن صيغة…' : 'Search formula…';
     }
 
-    /* Buttons */
     if (el.btnShatter) {
       el.btnShatter.textContent =
         isAr ? '⚡ تحطيم' : '⚡ SHATTER';
@@ -1186,8 +1121,6 @@ window.UI = (function () {
           ? (isAr ? '⛶ خروج' : '⛶ EXIT')
           : (isAr ? '⛶ كامل' : '⛶ FULL');
     }
-
-    /* Texture mode button */
     if (el.btnTexMode) {
       const isTex = el.btnTexMode.classList.contains('active');
       el.btnTexMode.textContent = isTex
@@ -1195,15 +1128,21 @@ window.UI = (function () {
         : (isAr ? '⬡ شيدر'    : '⬡ GLSL');
     }
 
+    /* POV exit button text */
+    if (el.btnPovExit) {
+      el.btnPovExit.textContent = isAr
+        ? '✕ خروج POV' : '✕ EXIT POV';
+    }
+
     /* Slider labels */
     const sliderLabels = {
-      speed:      ['SPEED',     'السرعة'    ],
-      scale:      ['SCALE',     'النطاق'    ],
-      chaos:      ['CHAOS',     'الفوضى'    ],
-      bloom:      ['BLOOM',     'الإضاءة'   ],
-      rotation:   ['ROTATION',  'الدوران'   ],
-      density:    ['DENSITY',   'الكثافة'   ],
-      texOpacity: ['TEX',       'نسيج'      ]
+      speed:      ['SPEED',    'السرعة'    ],
+      scale:      ['SCALE',    'النطاق'    ],
+      chaos:      ['CHAOS',    'الفوضى'    ],
+      bloom:      ['BLOOM',    'الإضاءة'   ],
+      rotation:   ['ROTATION', 'الدوران'   ],
+      density:    ['DENSITY',  'الكثافة'   ],
+      texOpacity: ['TEX',      'نسيج'      ]
     };
 
     Object.entries(sliderLabels).forEach(([key, [en, ar]]) => {
@@ -1215,7 +1154,6 @@ window.UI = (function () {
       }
     });
 
-    /* Tab labels */
     if (el.tabBtns) {
       el.tabBtns.forEach(btn => {
         btn.textContent = btn.dataset.tab === '2d'
@@ -1224,12 +1162,10 @@ window.UI = (function () {
       });
     }
 
-    /* Sync HUD */
     const syncTitle = document.querySelector('.sync-title');
     if (syncTitle) {
       syncTitle.textContent = isAr
-        ? 'تزامن الانعكاس'
-        : 'INVERSION SYNC';
+        ? 'تزامن الانعكاس' : 'INVERSION SYNC';
     }
 
     const dirLabel = document.querySelector('.dir-label');
@@ -1237,7 +1173,6 @@ window.UI = (function () {
       dirLabel.textContent = isAr ? 'الدوران' : 'ROTATION';
     }
 
-    /* Shortcuts header */
     const shHeader =
       document.querySelector('.shortcuts-header span');
     if (shHeader) {
@@ -1246,14 +1181,6 @@ window.UI = (function () {
         : 'KEYBOARD SHORTCUTS';
     }
 
-    /* POV overlay title */
-    if (povExitOverlay) {
-      povExitOverlay.title = isAr
-        ? 'اضغط للخروج من وضع POV'
-        : 'Tap anywhere to exit POV';
-    }
-
-    /* Mobile menu button */
     if (mobileMenuBtn) {
       mobileMenuBtn.setAttribute(
         'aria-label',
@@ -1267,44 +1194,27 @@ window.UI = (function () {
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      SECTION 16 — SYNC HUD UPDATER
-     Called every frame from main.js masterLoop
+     Called every frame from main.js
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /**
-   * updateSyncHUD — refresh all sync visualisations.
-   * @param {Object} m2d    Engine2D metrics
-   * @param {Object} sync   SyncController output
-   * @param {Object} mAudio AudioEngine metrics
-   */
   function updateSyncHUD(m2d, sync, mAudio) {
 
-    /* ── Sync bars ── */
-    const freq2d   = Math.min(
-      Math.abs(m2d.frequency   || 0), 1.0);
-    const scale3d  = Math.min(
-      Math.abs(1.0 - (sync.scaleMult || 1.0)), 1.0);
-    const omega    = mAudio
-      ? Math.min(mAudio.bassSmooth || 0, 1.0)
-      : 0;
+    const freq2d   = Math.min(Math.abs(m2d.frequency   || 0), 1.0);
+    const scale3d  = Math.min(Math.abs(1.0 - (sync.scaleMult || 1.0)), 1.0);
+    const omega    = mAudio ? Math.min(mAudio.bassSmooth || 0, 1.0) : 0;
 
     const pct2d    = Math.round(freq2d  * 100);
     const pct3d    = Math.round(scale3d * 100);
     const pctOmega = Math.round(omega   * 100);
 
-    if (el.sync2dFill) {
-      el.sync2dFill.style.width    = pct2d    + '%';
-    }
-    if (el.sync3dFill) {
-      el.sync3dFill.style.width    = pct3d    + '%';
-    }
-    if (el.syncOmegaFill) {
-      el.syncOmegaFill.style.width = pctOmega + '%';
-    }
-    if (el.sync2dNum)     el.sync2dNum.textContent    = pct2d    + '%';
-    if (el.sync3dNum)     el.sync3dNum.textContent    = pct3d    + '%';
-    if (el.syncOmegaNum)  el.syncOmegaNum.textContent = pctOmega + '%';
+    if (el.sync2dFill)    el.sync2dFill.style.width    = pct2d    + '%';
+    if (el.sync3dFill)    el.sync3dFill.style.width    = pct3d    + '%';
+    if (el.syncOmegaFill) el.syncOmegaFill.style.width = pctOmega + '%';
+    if (el.sync2dNum)     el.sync2dNum.textContent     = pct2d    + '%';
+    if (el.sync3dNum)     el.sync3dNum.textContent     = pct3d    + '%';
+    if (el.syncOmegaNum)  el.syncOmegaNum.textContent  = pctOmega + '%';
 
-    /* ── Texture sync row ── */
+    /* Texture sync row */
     let isLiveTex = true;
     try {
       const ts  = Cube3D.getTexSyncStatus();
@@ -1325,15 +1235,11 @@ window.UI = (function () {
         ? 'var(--green)' : 'var(--violet)';
     }
 
-    /* ── Direction arrows (always opposite) ── */
-    if (el.dir2d) {
-      el.dir2d.textContent = m2d.clockwise ? '↻' : '↺';
-    }
-    if (el.dir3d) {
-      el.dir3d.textContent = m2d.clockwise ? '↺' : '↻';
-    }
+    /* Direction arrows */
+    if (el.dir2d) el.dir2d.textContent = m2d.clockwise ? '↻' : '↺';
+    if (el.dir3d) el.dir3d.textContent = m2d.clockwise ? '↺' : '↻';
 
-    /* ── FPS counter (updated every 500ms) ── */
+    /* FPS counter */
     fpsFrames++;
     const now = performance.now();
     if (now - fpsLastTime >= 500) {
@@ -1352,13 +1258,11 @@ window.UI = (function () {
       }
     }
 
-    /* ── Beat indicator ── */
+    /* Beat indicator */
     if (mAudio && el.beatDot) {
       if (mAudio.beatDetect) {
         el.beatDot.classList.add('active');
-        beatFlashTimer = 6; /* hold 6 frames */
-
-        /* Pulse shatter button */
+        beatFlashTimer = 6;
         if (el.btnShatter) {
           el.btnShatter.classList.add('beat-active');
           setTimeout(() => {
@@ -1376,7 +1280,7 @@ window.UI = (function () {
       }
     }
 
-    /* ── Tex dot ── */
+    /* Tex dot */
     if (el.texDot) {
       el.texDot.classList.toggle('inactive', !isLiveTex);
     }
@@ -1415,7 +1319,8 @@ window.UI = (function () {
         overflow:        hidden;
         text-overflow:   ellipsis;
         transition:      opacity 0.24s ease,
-                         transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+                         transform 0.24s
+                         cubic-bezier(0.34, 1.56, 0.64, 1);
       }
       .toast-visible {
         opacity:   1;
@@ -1445,14 +1350,15 @@ window.UI = (function () {
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
   function init() {
-    /* 1. Inject toast CSS */
+    /* 1. Toast CSS */
     injectToastStyles();
 
-    /* 2. Cache all DOM references */
+    /* 2. Cache DOM */
     cacheElements();
 
-    /* 3. Create POV exit overlay BEFORE bindHeaderButtons */
-    createPOVExitOverlay();
+    /* 3. Wire POV exit button — MUST be before
+       bindHeaderButtons so exitPOV() is defined */
+    bindPOVExitButton();
 
     /* 4. Build preset list */
     buildPresetList();
@@ -1465,29 +1371,26 @@ window.UI = (function () {
     bindPanelControls();
     bindShortcutsOverlay();
 
-    /* 6. Apply initial language */
+    /* 6. Apply language */
     applyLanguage();
 
-    /* 7. Set initial active label */
+    /* 7. Initial active label */
     updateActiveLabel(0);
 
-    /* 8. Verify preset list built correctly */
+    /* 8. Verify */
     const itemCount = el.presetList
       ? el.presetList.querySelectorAll('.preset-item').length
       : 0;
 
     console.info(
-      `[UI] v2.0 initialised. ` +
-      `${itemCount} presets rendered. ` +
-      `POV overlay: ${povExitOverlay ? 'ready' : 'MISSING'}. ` +
-      `Mobile menu: ${mobileMenuBtn ? 'ready' : 'MISSING'}.`
+      `[UI] v2.0 ready. ` +
+      `Presets: ${itemCount}. ` +
+      `POV exit btn: ${el.btnPovExit ? 'OK' : 'MISSING'}. ` +
+      `Mobile menu: ${mobileMenuBtn ? 'OK' : 'MISSING'}.`
     );
 
     if (itemCount === 0) {
-      console.error(
-        '[UI] CRITICAL: No preset items created. ' +
-        'Check that #preset-list exists in the DOM.'
-      );
+      console.error('[UI] No preset items created!');
     }
 
     /* 9. Welcome toast */
