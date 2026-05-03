@@ -82,7 +82,7 @@
     F(x,y,t) = sin(0.003x + t) + cos(0.003y + t)
   </div>
 
-</div><!-- /#loader -->
+</div>
 
 
 <!-- ═══════════════════════════════════════════════════
@@ -90,19 +90,24 @@
 ═══════════════════════════════════════════════════ -->
 <div id="app" class="app hidden">
 
-  <!-- ── Canvas Layers ── -->
+  <!-- Canvas Layers -->
   <canvas id="canvas2d" aria-hidden="true"></canvas>
   <canvas id="canvas3d"
           aria-label="Interactive 3D Xhaos Cube"></canvas>
 
-  <!-- ── Mobile Hamburger Button ── -->
+  <!-- Mobile Hamburger -->
   <button class="mobile-menu-btn glass"
           id="btn-mobile-menu"
           aria-label="Open formula panel"
           aria-expanded="false">&#9776;</button>
 
-  <!-- ── Mobile Panel Backdrop ── -->
+  <!-- Mobile Panel Backdrop -->
   <div class="panel-backdrop" id="panel-backdrop"></div>
+
+  <!-- POV Exit Button — visible only in POV mode -->
+  <button class="pov-exit-btn glass"
+          id="btn-pov-exit"
+          aria-label="Exit POV mode">&#10005; EXIT POV</button>
 
 
   <!-- ════════════════════════════════
@@ -110,14 +115,14 @@
   ════════════════════════════════ -->
   <header class="hud-header glass" role="banner">
 
-    <!-- Brand -->
     <div class="brand">
       <div class="brand-hex" aria-hidden="true">
         <svg viewBox="0 0 40 40" width="24" height="24">
           <polygon points="20,2 38,11 38,29 20,38 2,29 2,11"
                    fill="none" stroke="#00f0ff" stroke-width="1.2"/>
           <text x="20" y="25" text-anchor="middle"
-                fill="#00f0ff" font-size="13" font-weight="bold">X</text>
+                fill="#00f0ff" font-size="13"
+                font-weight="bold">X</text>
         </svg>
       </div>
       <span class="brand-geo">GEO</span>
@@ -125,7 +130,6 @@
       <span class="brand-tag" id="brand-tag">XHAOS ENGINE</span>
     </div>
 
-    <!-- Live Metrics -->
     <div class="hud-metrics" aria-live="polite">
       <div class="metric-chip" id="metric-fps">
         <span class="metric-label">FPS</span>
@@ -137,7 +141,8 @@
       </div>
       <div class="metric-chip" id="metric-formula">
         <span class="metric-label">NO.</span>
-        <span class="metric-value" id="formula-index-display">01</span>
+        <span class="metric-value"
+              id="formula-index-display">01</span>
       </div>
       <div class="metric-chip" id="metric-tex">
         <span class="metric-label">TEX</span>
@@ -145,7 +150,6 @@
       </div>
     </div>
 
-    <!-- Controls -->
     <nav class="hud-controls" aria-label="Controls">
       <button class="icon-btn" id="btn-lang"
               title="Toggle Language"
@@ -224,7 +228,6 @@
          id="preset-list"
          role="listbox"
          aria-label="Formula presets">
-      <!-- Built by ui.js -->
     </div>
 
     <div class="panel-footer">
@@ -249,8 +252,7 @@
       <label for="param-speed"
              data-en="SPEED" data-ar="السرعة">SPEED</label>
       <input type="range" id="param-speed"
-             min="0" max="3" step="0.01" value="1"
-             aria-label="Speed" />
+             min="0" max="3" step="0.01" value="1" />
       <span class="param-val" id="val-speed">1.00</span>
     </div>
 
@@ -258,8 +260,7 @@
       <label for="param-scale"
              data-en="SCALE" data-ar="النطاق">SCALE</label>
       <input type="range" id="param-scale"
-             min="0.1" max="5" step="0.01" value="1"
-             aria-label="Scale" />
+             min="0.1" max="5" step="0.01" value="1" />
       <span class="param-val" id="val-scale">1.00</span>
     </div>
 
@@ -267,8 +268,7 @@
       <label for="param-chaos"
              data-en="CHAOS" data-ar="الفوضى">CHAOS</label>
       <input type="range" id="param-chaos"
-             min="0" max="1" step="0.01" value="0.5"
-             aria-label="Chaos" />
+             min="0" max="1" step="0.01" value="0.5" />
       <span class="param-val" id="val-chaos">0.50</span>
     </div>
 
@@ -276,26 +276,25 @@
       <label for="param-bloom"
              data-en="BLOOM" data-ar="الإضاءة">BLOOM</label>
       <input type="range" id="param-bloom"
-             min="0" max="3" step="0.01" value="1.2"
-             aria-label="Bloom" />
+             min="0" max="3" step="0.01" value="1.2" />
       <span class="param-val" id="val-bloom">1.20</span>
     </div>
 
     <div class="param-group">
       <label for="param-rotation"
-             data-en="ROTATION" data-ar="الدوران">ROTATION</label>
+             data-en="ROTATION"
+             data-ar="الدوران">ROTATION</label>
       <input type="range" id="param-rotation"
-             min="-2" max="2" step="0.01" value="0.3"
-             aria-label="Rotation" />
+             min="-2" max="2" step="0.01" value="0.3" />
       <span class="param-val" id="val-rotation">0.30</span>
     </div>
 
     <div class="param-group">
       <label for="param-density"
-             data-en="DENSITY" data-ar="الكثافة">DENSITY</label>
+             data-en="DENSITY"
+             data-ar="الكثافة">DENSITY</label>
       <input type="range" id="param-density"
-             min="500" max="5000" step="100" value="2800"
-             aria-label="Density" />
+             min="500" max="5000" step="100" value="2800" />
       <span class="param-val" id="val-density">2800</span>
     </div>
 
@@ -303,8 +302,7 @@
       <label for="param-tex-opacity"
              data-en="TEX" data-ar="نسيج">TEX</label>
       <input type="range" id="param-tex-opacity"
-             min="0" max="1" step="0.01" value="1"
-             aria-label="Texture depth" />
+             min="0" max="1" step="0.01" value="1" />
       <span class="param-val" id="val-tex-opacity">1.00</span>
     </div>
 
@@ -315,7 +313,7 @@
             data-en="SHATTER"
             data-ar="تحطيم">&#9889; SHATTER</button>
 
-  </div><!-- /#bottom-bar -->
+  </div>
 
 
   <!-- ════════════════════════════════
@@ -334,7 +332,8 @@
     <div class="sync-row">
       <span class="sync-label">2D</span>
       <div class="sync-bar-track">
-        <div class="sync-bar-fill cyan" id="sync-2d-fill"></div>
+        <div class="sync-bar-fill cyan"
+             id="sync-2d-fill"></div>
       </div>
       <span class="sync-num" id="sync-2d-num">0%</span>
     </div>
@@ -342,7 +341,8 @@
     <div class="sync-row">
       <span class="sync-label">3D</span>
       <div class="sync-bar-track">
-        <div class="sync-bar-fill violet" id="sync-3d-fill"></div>
+        <div class="sync-bar-fill violet"
+             id="sync-3d-fill"></div>
       </div>
       <span class="sync-num" id="sync-3d-num">0%</span>
     </div>
@@ -350,7 +350,8 @@
     <div class="sync-row">
       <span class="sync-label">&#937;</span>
       <div class="sync-bar-track">
-        <div class="sync-bar-fill gold" id="sync-omega-fill"></div>
+        <div class="sync-bar-fill gold"
+             id="sync-omega-fill"></div>
       </div>
       <span class="sync-num" id="sync-omega-num">0%</span>
     </div>
@@ -376,7 +377,7 @@
       </div>
     </div>
 
-  </div><!-- /#sync-hud -->
+  </div>
 
 
   <!-- ════════════════════════════════
@@ -385,10 +386,13 @@
   <div class="active-label glass"
        id="active-label"
        aria-live="polite">
-    <span class="active-num" id="active-preset-num">01</span>
+    <span class="active-num"
+          id="active-preset-num">01</span>
     <div class="active-info">
-      <span class="active-name" id="active-preset-name">Fiber Optics</span>
-      <span class="active-engine" id="active-engine-tag">2D &rarr; 3D LIVE</span>
+      <span class="active-name"
+            id="active-preset-name">Fiber Optics</span>
+      <span class="active-engine"
+            id="active-engine-tag">2D &rarr; 3D LIVE</span>
     </div>
   </div>
 
@@ -411,16 +415,16 @@
                 aria-label="Close">&#10005;</button>
       </div>
       <div class="shortcuts-grid">
-        <kbd>SPACE</kbd> <span>Shatter Cube</span>
-        <kbd>R</kbd>     <span>Randomize</span>
-        <kbd>P</kbd>     <span>POV Mode</span>
-        <kbd>T</kbd>     <span>Toggle Texture / Shader</span>
-        <kbd>A</kbd>     <span>Audio Toggle</span>
-        <kbd>F</kbd>     <span>Fullscreen</span>
-        <kbd>L</kbd>     <span>Language</span>
-        <kbd>&#8592;/&#8594;</kbd> <span>Cycle Preset</span>
-        <kbd>?</kbd>     <span>This Panel</span>
-        <kbd>ESC</kbd>   <span>Close / Exit POV</span>
+        <kbd>SPACE</kbd><span>Shatter Cube</span>
+        <kbd>R</kbd>    <span>Randomize</span>
+        <kbd>P</kbd>    <span>POV Mode</span>
+        <kbd>T</kbd>    <span>Texture / Shader</span>
+        <kbd>A</kbd>    <span>Audio Toggle</span>
+        <kbd>F</kbd>    <span>Fullscreen</span>
+        <kbd>L</kbd>    <span>Language</span>
+        <kbd>&#8592;/&#8594;</kbd><span>Cycle Preset</span>
+        <kbd>?</kbd>    <span>This Panel</span>
+        <kbd>ESC</kbd>  <span>Close / Exit POV</span>
       </div>
     </div>
   </div>
@@ -430,12 +434,10 @@
        id="screenshot-flash"
        aria-hidden="true"></div>
 
-</div><!-- /#app -->
+</div>
 
 
-<!-- ═══════════════════════════════════════════════════
-     SCRIPTS — Order is critical
-═══════════════════════════════════════════════════ -->
+<!-- Scripts — load order is critical -->
 <script src="audio.js"></script>
 <script src="engine2d.js"></script>
 <script src="cube3d.js"></script>
